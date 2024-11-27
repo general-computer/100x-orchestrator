@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from orchestrator import initialiseCodingAgent, main_loop, load_tasks, save_tasks
 import os
 import threading
@@ -11,6 +11,11 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/tasks/tasks.json')
+def serve_tasks_json():
+    """Serve the tasks.json file"""
+    return send_from_directory('tasks', 'tasks.json')
 
 @app.route('/agents')
 def agent_view():
@@ -73,6 +78,15 @@ def create_agent():
                 # Add task to tasks list if not already present
                 if task_description not in tasks_data['tasks']:
                     tasks_data['tasks'].append(task_description)
+        
+        # Update tasks.json with repo URL and agents
+        tasks_data['repo_url'] = repo_url
+        tasks_data['agents'] = tasks_data.get('agents', {})
+        for agent_id in created_agents:
+            tasks_data['agents'][agent_id] = {
+                'task': tasks_data['tasks'][-1],  # Last added task
+                'repo_url': repo_url
+            }
         
         # Save updated tasks
         save_tasks(tasks_data)
