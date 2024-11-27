@@ -1,6 +1,7 @@
 import os, json, traceback, subprocess, sys, uuid
 from pathlib import Path
 import shutil
+import tempfile
 from time import sleep
 from litellm import completion
 from config import ConfigManager
@@ -14,7 +15,6 @@ class Colors:
 
 # Configuration
 MODEL_NAME = os.environ.get('LITELLM_MODEL', 'anthropic/claude-3-5-sonnet-20240620')
-WORKSPACE_DIR = Path("workspaces")
 TASKS_FILE = Path("tasks/tasks.json")
 config_manager = ConfigManager()
 tools, available_functions = [], {}
@@ -46,14 +46,8 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         # Generate unique agent ID
         agent_id = str(uuid.uuid4())
         
-        # Create workspace directories
-        workspace_base = WORKSPACE_DIR
-        agent_workspace = workspace_base / f"agent_{agent_id}_1"
-        
-        # Check if workspace already exists
-        if agent_workspace.exists():
-            print(f"{Colors.WARNING}Workspace already exists, cleaning up...{Colors.ENDC}")
-            shutil.rmtree(agent_workspace)
+        # Create temporary workspace directory
+        agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_"))
         
         # Create standard directory structure
         for dir_name in ["src", "tests", "docs", "config", "repo"]:
@@ -62,6 +56,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         # Validate task description
         if not task_description:
             print(f"{Colors.FAIL}No task description provided{Colors.ENDC}")
+            shutil.rmtree(agent_workspace)
             return None
             
         # Create task file in agent workspace
@@ -77,12 +72,14 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             repo_url = repository_url or os.environ.get('REPOSITORY_URL')
             if not cloneRepository(repo_url):
                 print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
+                shutil.rmtree(agent_workspace)
                 return None
             
             # Get the cloned repository directory name
             repo_dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
             if not repo_dirs:
                 print(f"{Colors.FAIL}No repository directory found after cloning{Colors.ENDC}")
+                shutil.rmtree(agent_workspace)
                 return None
             
             repo_dir = repo_dirs[0]
@@ -96,6 +93,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 subprocess.check_call(f"git checkout -b {branch_name}", shell=True)
             except subprocess.CalledProcessError:
                 print(f"{Colors.FAIL}Failed to create new branch{Colors.ENDC}")
+                shutil.rmtree(agent_workspace)
                 return None
         finally:
             # Always return to original directory
@@ -119,6 +117,9 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
     except Exception as e:
         print(f"{Colors.FAIL}Error initializing coding agent: {str(e)}{Colors.ENDC}")
         traceback.print_exc()
+        # Cleanup temporary workspace if it exists
+        if 'agent_workspace' in locals():
+            shutil.rmtree(agent_workspace)
         return None
 
 def cloneRepository(repository_url: str) -> bool:
