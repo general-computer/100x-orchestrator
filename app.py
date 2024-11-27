@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from orchestrator import initialiseCodingAgent, main_loop, load_tasks, save_tasks
+from orchestrator import initialiseCodingAgent, main_loop, load_tasks, save_tasks, delete_agent
 import os
 import threading
 import json
@@ -68,6 +68,7 @@ def create_agent():
         data = request.get_json()
         repo_url = data.get('repo_url')
         tasks = data.get('tasks', [])
+        num_agents = data.get('num_agents', 1)  # Default to 1 if not specified
         
         if not repo_url or not tasks:
             return jsonify({'error': 'Repository URL and tasks are required'}), 400
@@ -85,11 +86,15 @@ def create_agent():
             # Set environment variable for repo URL
             os.environ['REPOSITORY_URL'] = repo_url
             
-            # Initialize agent
-            agent_id = initialiseCodingAgent(repo_url, task_description)
+            # Initialize agent with specified number of agents per task
+            agent_ids = initialiseCodingAgent(
+                repository_url=repo_url, 
+                task_description=task_description, 
+                num_agents=num_agents
+            )
             
-            if agent_id:
-                created_agents.append(agent_id)
+            if agent_ids:
+                created_agents.extend(agent_ids)
                 # Add task to tasks list if not already present
                 if task_description not in tasks_data['tasks']:
                     tasks_data['tasks'].append(task_description)
@@ -133,6 +138,43 @@ def create_agent():
                 'error': 'Failed to create any agents'
             }), 500
             
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/delete_agent/<agent_id>', methods=['DELETE'])
+def remove_agent(agent_id):
+    try:
+        # Load current tasks
+        tasks_data = load_tasks()
+        
+        # Check if agent exists
+        if agent_id not in tasks_data['agents']:
+            return jsonify({
+                'success': False, 
+                'error': f'Agent {agent_id} not found'
+            }), 404
+        
+        # Delete the agent
+        deletion_result = delete_agent(agent_id)
+        
+        if deletion_result:
+            # Remove agent from tasks.json
+            del tasks_data['agents'][agent_id]
+            save_tasks(tasks_data)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Agent {agent_id} deleted successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to delete agent {agent_id}'
+            }), 500
+    
     except Exception as e:
         return jsonify({
             'success': False,

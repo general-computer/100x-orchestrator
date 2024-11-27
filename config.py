@@ -16,7 +16,8 @@ class ConfigManager:
             default_config = {
                 "repository_url": "",
                 "tasks": [],
-                "current_task_index": 0
+                "current_task_index": 0,
+                "default_agents_per_task": 1  # New default agent count configuration
             }
             self._save_config(default_config)
             return default_config
@@ -65,4 +66,16 @@ class ConfigManager:
     def reset_task_index(self) -> None:
         """Reset the task index to 0."""
         self.config["current_task_index"] = 0
+        self._save_config(self.config)
+
+    def get_default_agents_per_task(self) -> int:
+        """Get the default number of agents per task."""
+        return self.config.get("default_agents_per_task", 1)
+
+    def set_default_agents_per_task(self, num_agents: int) -> None:
+        """Set the default number of agents per task."""
+        if num_agents < 1:
+            raise ValueError("Number of agents must be at least 1")
+        
+        self.config["default_agents_per_task"] = num_agents
         self._save_config(self.config)

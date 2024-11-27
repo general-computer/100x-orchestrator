@@ -20,7 +20,6 @@ config_manager = ConfigManager()
 tools, available_functions = [], {}
 MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
 CHECK_INTERVAL = 300  # 5 minutes between agent checks
-DEFAULT_AGENTS_PER_TASK = 1  # Default number of agents to create per task
 
 def load_tasks():
     """Load tasks from tasks.json."""
@@ -74,8 +73,8 @@ def delete_agent(agent_id):
 
 def initialiseCodingAgent(repository_url: str = None, task_description: str = None, num_agents: int = None):
     """Initialise coding agents with configurable agent count."""
-    # Use provided num_agents or default
-    num_agents = num_agents or DEFAULT_AGENTS_PER_TASK
+    # Use provided num_agents or get default from config
+    num_agents = num_agents or config_manager.get_default_agents_per_task()
     
     # Validate input
     if not task_description:
@@ -117,7 +116,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             try:
                 # Clone repository into repo subdirectory
                 os.chdir(workspace_dirs["repo"])
-                repo_url = repository_url or os.environ.get('REPOSITORY_URL')
+                repo_url = repository_url or config_manager.get_repository_url()
                 if not cloneRepository(repo_url):
                     print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
                     shutil.rmtree(agent_workspace)

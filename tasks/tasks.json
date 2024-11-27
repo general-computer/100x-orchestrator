@@ -73,6 +73,40 @@
             "files": [
                 "workspaces\\f750e143-3288-4565-9ac1-a53ff7a475a3\\config\\prompt.txt"
             ]
+        },
+        "42936b50-c7c2-4617-bd3d-e91e6546ed54": {
+            "task": "make title blue",
+            "repo_url": "https://github.com/aj47/techfren-website",
+            "workspace": "workspaces\\42936b50-c7c2-4617-bd3d-e91e6546ed54",
+            "prompt_details": {
+                "task": "make title blue",
+                "status": "unknown",
+                "last_critique": {
+                    "files_created": 2001,
+                    "complexity": "moderate",
+                    "potential_improvements": []
+                }
+            },
+            "files": [
+                "workspaces\\42936b50-c7c2-4617-bd3d-e91e6546ed54\\config\\prompt.txt"
+            ]
+        },
+        "e8b44ab0-781e-4fa0-bdd0-773c899f63de": {
+            "task": "make title blue",
+            "repo_url": "https://github.com/aj47/techfren-website",
+            "workspace": "workspaces\\e8b44ab0-781e-4fa0-bdd0-773c899f63de",
+            "prompt_details": {
+                "task": "make title blue",
+                "status": "unknown",
+                "last_critique": {
+                    "files_created": 2001,
+                    "complexity": "moderate",
+                    "potential_improvements": []
+                }
+            },
+            "files": [
+                "workspaces\\e8b44ab0-781e-4fa0-bdd0-773c899f63de\\config\\prompt.txt"
+            ]
         }
     }
 }

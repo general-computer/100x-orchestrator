@@ -31,6 +31,13 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="agentCount">Number of Agents per Task</label>
+                        <input type="number" class="form-control" id="agentCount" 
+                               min="1" max="10" value="1" 
+                               placeholder="Number of agents to create for each task">
+                    </div>
+                    
+                    <div class="form-group">
                         <label>Tasks</label>
                         <div id="taskList">
                             <!-- Tasks will be dynamically populated here -->
@@ -131,6 +138,8 @@
                         .map(input => input.value.trim())
                         .filter(task => task !== '');
                     
+                    const agentCount = parseInt(document.getElementById('agentCount').value, 10);
+                    
                     const response = await fetch('/create_agent', {
                         method: 'POST',
                         headers: {
@@ -138,7 +147,8 @@
                         },
                         body: JSON.stringify({
                             repo_url: document.getElementById('repoUrl').value,
-                            tasks: tasks
+                            tasks: tasks,
+                            num_agents: agentCount
                         })
                     });
                     
