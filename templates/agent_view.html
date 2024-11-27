@@ -16,6 +16,16 @@
         .delete-agent-btn {
             margin-left: 10px;
         }
+        .cli-output {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            padding: 1rem;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -62,6 +72,11 @@
                             {% endif %}
                         </ul>
                     </div>
+                </div>
+
+                <div class="progress-section">
+                    <h6>Aider CLI Output</h6>
+                    <div class="cli-output">{{ agent.aider_output or 'No output available yet...' }}</div>
                 </div>
 
                 <div class="progress-section">

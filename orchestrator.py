@@ -7,6 +7,11 @@ from litellm import completion
 from config import ConfigManager
 import threading
 import datetime
+import pty
+import io
+import fcntl
+import termios
+import select
 
 # ANSI escape codes for color and formatting
 class Colors:
@@ -20,6 +25,72 @@ config_manager = ConfigManager()
 tools, available_functions = [], {}
 MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
 CHECK_INTERVAL = 300  # 5 minutes between agent checks
+
+class AiderSession:
+    def __init__(self, workspace_path, task):
+        self.workspace_path = workspace_path
+        self.task = task
+        self.output_buffer = io.StringIO()
+        self.process = None
+        self.master_fd = None
+        self.slave_fd = None
+
+    def start(self):
+        """Start the aider session in a pseudo-terminal"""
+        try:
+            # Create pseudo-terminal
+            self.master_fd, self.slave_fd = pty.openpty()
+            # Make the master non-blocking
+            flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
+            fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+            # Start aider process
+            cmd = f'aider --mini --message "{self.task}"'
+            self.process = subprocess.Popen(
+                cmd,
+                shell=True,
+                cwd=self.workspace_path,
+                stdin=self.slave_fd,
+                stdout=self.slave_fd,
+                stderr=self.slave_fd,
+                start_new_session=True
+            )
+
+            # Start output reading thread
+            threading.Thread(target=self._read_output, daemon=True).start()
+            return True
+        except Exception as e:
+            print(f"{Colors.FAIL}Failed to start aider session: {e}{Colors.ENDC}")
+            return False
+
+    def _read_output(self):
+        """Read output from the pseudo-terminal"""
+        try:
+            while self.process.poll() is None:  # While process is running
+                ready, _, _ = select.select([self.master_fd], [], [], 0.1)
+                if ready:
+                    try:
+                        output = os.read(self.master_fd, 1024).decode()
+                        self.output_buffer.write(output)
+                    except (OSError, IOError) as e:
+                        if e.errno != errno.EAGAIN:  # Ignore would-block errors
+                            break
+        except Exception as e:
+            print(f"{Colors.FAIL}Error reading aider output: {e}{Colors.ENDC}")
+
+    def get_output(self):
+        """Get the current output buffer contents"""
+        return self.output_buffer.getvalue()
+
+    def cleanup(self):
+        """Clean up the aider session"""
+        if self.process:
+            self.process.terminate()
+            self.process.wait()
+        if self.master_fd:
+            os.close(self.master_fd)
+        if self.slave_fd:
+            os.close(self.slave_fd)
 
 def load_tasks():
     """Load tasks from tasks.json."""
@@ -48,6 +119,10 @@ def delete_agent(agent_id):
         # Find and remove the agent
         if agent_id in tasks_data['agents']:
             agent_data = tasks_data['agents'][agent_id]
+            
+            # Cleanup aider session if it exists
+            if 'aider_session' in agent_data:
+                agent_data['aider_session'].cleanup()
             
             # Remove workspace directory if it exists
             workspace = agent_data.get('workspace')
@@ -143,6 +218,14 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                     print(f"{Colors.FAIL}Failed to create new branch{Colors.ENDC}")
                     shutil.rmtree(agent_workspace)
                     continue
+
+                # Initialize aider session
+                aider_session = AiderSession(str(full_repo_path), task_description)
+                if not aider_session.start():
+                    print(f"{Colors.FAIL}Failed to start aider session{Colors.ENDC}")
+                    shutil.rmtree(agent_workspace)
+                    continue
+
             finally:
                 # Always return to original directory
                 os.chdir(original_dir)
@@ -155,7 +238,9 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 'task': task_description,
                 'status': 'pending',
                 'created_at': datetime.datetime.now().isoformat(),
-                'last_updated': datetime.datetime.now().isoformat()
+                'last_updated': datetime.datetime.now().isoformat(),
+                'aider_output': '',  # Initialize empty output
+                'aider_session': aider_session  # Store session object
             }
             save_tasks(tasks_data)
             
@@ -169,7 +254,6 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         traceback.print_exc()
         return None
 
-# Rest of the code remains the same as in the previous implementation
 def cloneRepository(repository_url: str) -> bool:
     """Clone git repository using subprocess.check_call."""
     try:
@@ -206,6 +290,10 @@ def critique_agent_progress(agent_id):
         # Update agent status based on critique
         agent_data['status'] = 'in_progress' if len(src_files) > 0 else 'pending'
         
+        # Update aider output
+        if 'aider_session' in agent_data:
+            agent_data['aider_output'] = agent_data['aider_session'].get_output()
+        
         agent_data['last_critique'] = critique
         agent_data['last_updated'] = datetime.datetime.now().isoformat()
         
@@ -237,7 +325,8 @@ def main_loop():
                     prompt_file.write_text(json.dumps({
                         'task': agent_data.get('task', ''),
                         'status': agent_data.get('status', 'unknown'),
-                        'last_critique': critique
+                        'last_critique': critique,
+                        'aider_output': agent_data.get('aider_output', '')
                     }, indent=4))
             
             # Save updated tasks
