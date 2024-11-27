@@ -48,10 +48,20 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         
         # Create temporary workspace directory
         agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_"))
+        print(f"{Colors.OKGREEN}Created temporary workspace at: {agent_workspace}{Colors.ENDC}")
         
-        # Create standard directory structure
-        for dir_name in ["src", "tests", "docs", "config", "repo"]:
-            (agent_workspace / dir_name).mkdir(parents=True, exist_ok=True)
+        # Create standard directory structure WITHIN the temporary workspace
+        workspace_dirs = {
+            "src": agent_workspace / "src",
+            "tests": agent_workspace / "tests", 
+            "docs": agent_workspace / "docs", 
+            "config": agent_workspace / "config", 
+            "repo": agent_workspace / "repo"
+        }
+        
+        # Create all directories
+        for dir_path in workspace_dirs.values():
+            dir_path.mkdir(parents=True, exist_ok=True)
             
         # Validate task description
         if not task_description:
@@ -68,7 +78,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         
         try:
             # Clone repository into repo subdirectory
-            os.chdir(agent_workspace / "repo")
+            os.chdir(workspace_dirs["repo"])
             repo_url = repository_url or os.environ.get('REPOSITORY_URL')
             if not cloneRepository(repo_url):
                 print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
@@ -83,9 +93,10 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 return None
             
             repo_dir = repo_dirs[0]
+            full_repo_path = workspace_dirs["repo"] / repo_dir
             
             # Change to the cloned repository directory
-            os.chdir(repo_dir)
+            os.chdir(full_repo_path)
             
             # Create and checkout new branch
             branch_name = f"agent-{agent_id[:8]}"
@@ -103,7 +114,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         tasks_data = load_tasks()
         tasks_data['agents'][agent_id] = {
             'workspace': str(agent_workspace),
-            'repo_path': str(agent_workspace / "repo" / repo_dir),
+            'repo_path': str(full_repo_path),
             'task': task_description,
             'status': 'pending',
             'created_at': datetime.datetime.now().isoformat(),
@@ -142,7 +153,11 @@ def critique_agent_progress(agent_id):
             return None
         
         # Use repo_path for file search
-        workspace = Path(agent_data['repo_path'])
+        workspace = Path(agent_data.get('repo_path', ''))
+        if not workspace.exists():
+            print(f"{Colors.WARNING}Workspace path does not exist: {workspace}{Colors.ENDC}")
+            return None
+        
         src_files = list(workspace.glob('**/*.py'))  # Check Python files
         
         critique = {
@@ -152,10 +167,7 @@ def critique_agent_progress(agent_id):
         }
         
         # Update agent status based on critique
-        if len(src_files) > 0:
-            agent_data['status'] = 'in_progress'
-        else:
-            agent_data['status'] = 'pending'
+        agent_data['status'] = 'in_progress' if len(src_files) > 0 else 'pending'
         
         agent_data['last_critique'] = critique
         agent_data['last_updated'] = datetime.datetime.now().isoformat()
@@ -175,20 +187,21 @@ def main_loop():
             tasks_data = load_tasks()
             
             # Check each agent's progress
-            for agent_id, agent_data in tasks_data['agents'].items():
+            for agent_id, agent_data in list(tasks_data['agents'].items()):
                 print(f"{Colors.OKCYAN}Checking agent {agent_id}{Colors.ENDC}")
                 
                 # Critique progress
                 critique = critique_agent_progress(agent_id)
                 
-                # Update prompt file (simulated)
-                prompt_file = Path(agent_data['workspace']) / 'config' / 'prompt.txt'
-                prompt_file.parent.mkdir(parents=True, exist_ok=True)
-                prompt_file.write_text(json.dumps({
-                    'task': agent_data['task'],
-                    'status': agent_data['status'],
-                    'last_critique': critique
-                }, indent=4))
+                # Update prompt file in temporary workspace
+                if agent_data.get('workspace'):
+                    prompt_file = Path(agent_data['workspace']) / 'config' / 'prompt.txt'
+                    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+                    prompt_file.write_text(json.dumps({
+                        'task': agent_data.get('task', ''),
+                        'status': agent_data.get('status', 'unknown'),
+                        'last_critique': critique
+                    }, indent=4))
             
             # Save updated tasks
             save_tasks(tasks_data)

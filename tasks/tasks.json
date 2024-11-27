@@ -6,5 +6,19 @@
     ],
     "repo_url": "https://github.com/aj47/techfren-website",
     "agents": {
+        "831819b2-c5b3-4e28-a7e0-774a2ecc83ed": {
+            "task": "make title blue",
+            "repo_url": "https://github.com/aj47/techfren-website",
+            "workspace": "workspaces\\831819b2-c5b3-4e28-a7e0-774a2ecc83ed",
+            "prompt_details": {},
+            "files": []
+        },
+        "eb9bc648-40ef-4a9d-81bb-7f1be65d7a28": {
+            "task": "make title blue",
+            "repo_url": "https://github.com/aj47/techfren-website",
+            "workspace": "workspaces\\eb9bc648-40ef-4a9d-81bb-7f1be65d7a28",
+            "prompt_details": {},
+            "files": []
+        }
     }
 }
