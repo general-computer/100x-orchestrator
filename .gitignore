@@ -1,1 +1,4 @@
 workspace
+.venv
+*__pycache__*
+workspaces
