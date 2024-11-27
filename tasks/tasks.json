@@ -1,7 +1,8 @@
 {
     "tasks": [
         "make the title pink",
-        "make the quick links smaller"
+        "make the quick links smaller",
+        "make title blue"
     ],
     "agents": {}
 }

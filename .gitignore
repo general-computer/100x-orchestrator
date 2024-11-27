@@ -2,3 +2,5 @@ workspace
 .venv
 *__pycache__*
 workspaces
+.aider*
+.env

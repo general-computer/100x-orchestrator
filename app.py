@@ -1,33 +1,46 @@
 from flask import Flask, render_template, request, jsonify
-from orchestrator import initialiseCodingAgent, main_loop
+from orchestrator import initialiseCodingAgent, main_loop, load_tasks, save_tasks
 import os
 import threading
 import json
 from pathlib import Path
+import datetime
 
 app = Flask(__name__)
-
-def load_tasks():
-    """Load tasks from tasks.json."""
-    tasks_file = Path('tasks/tasks.json')
-    try:
-        with open(tasks_file, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"tasks": [], "agents": {}}
-
-def save_tasks(tasks_data):
-    """Save tasks to tasks.json."""
-    tasks_file = Path('tasks/tasks.json')
-    try:
-        with open(tasks_file, 'w') as f:
-            json.dump(tasks_data, f, indent=4)
-    except Exception as e:
-        print(f"Error saving tasks: {e}")
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/agents')
+def agent_view():
+    """Render the agent view with all agent details."""
+    tasks_data = load_tasks()
+    agents = tasks_data.get('agents', {})
+    
+    # Calculate time until next check
+    now = datetime.datetime.now()
+    next_check = now + datetime.timedelta(seconds=300)  # 5 minutes from now
+    time_until_next_check = int((next_check - now).total_seconds())
+    
+    # Enrich agent data with more details
+    for agent_id, agent in agents.items():
+        # Load prompt file for additional details
+        prompt_file = Path(agent['workspace']) / 'config' / 'prompt.txt'
+        try:
+            with open(prompt_file, 'r') as f:
+                prompt_data = json.load(f)
+                agent['prompt_details'] = prompt_data
+        except FileNotFoundError:
+            agent['prompt_details'] = {}
+        
+        # Calculate workspace files
+        workspace = Path(agent['workspace'])
+        agent['files'] = [str(f) for f in workspace.glob('**/*') if f.is_file()]
+    
+    return render_template('agent_view.html', 
+                           agents=agents, 
+                           time_until_next_check=time_until_next_check)
 
 @app.route('/create_agent', methods=['POST'])
 def create_agent():
