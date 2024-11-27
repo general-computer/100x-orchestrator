@@ -1,112 +1,38 @@
 {
     "tasks": [
-        "make the title pink",
-        "make the quick links smaller",
-        "make title blue"
+        "make title pink"
     ],
-    "repo_url": "https://github.com/aj47/techfren-website",
     "agents": {
-        "831819b2-c5b3-4e28-a7e0-774a2ecc83ed": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\831819b2-c5b3-4e28-a7e0-774a2ecc83ed",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\831819b2-c5b3-4e28-a7e0-774a2ecc83ed\\config\\prompt.txt"
-            ]
+        "26575770-9469-42fa-9628-0c14eff6df42": {
+            "workspace": "workspaces\\26575770-9469-42fa-9628-0c14eff6df42",
+            "repo_path": null,
+            "task": "make title pink",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
         },
-        "eb9bc648-40ef-4a9d-81bb-7f1be65d7a28": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\eb9bc648-40ef-4a9d-81bb-7f1be65d7a28",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\eb9bc648-40ef-4a9d-81bb-7f1be65d7a28\\config\\prompt.txt"
-            ]
+        "7afed93a-0662-4a95-b134-fb07a0144ded": {
+            "workspace": "workspaces\\7afed93a-0662-4a95-b134-fb07a0144ded",
+            "repo_path": null,
+            "task": "make title pink",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
         },
-        "012d8970-69bf-40cc-a329-e5ebdf5952bb": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\012d8970-69bf-40cc-a329-e5ebdf5952bb",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\012d8970-69bf-40cc-a329-e5ebdf5952bb\\config\\prompt.txt"
-            ]
-        },
-        "f750e143-3288-4565-9ac1-a53ff7a475a3": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\f750e143-3288-4565-9ac1-a53ff7a475a3",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\f750e143-3288-4565-9ac1-a53ff7a475a3\\config\\prompt.txt"
-            ]
-        },
-        "42936b50-c7c2-4617-bd3d-e91e6546ed54": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\42936b50-c7c2-4617-bd3d-e91e6546ed54",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\42936b50-c7c2-4617-bd3d-e91e6546ed54\\config\\prompt.txt"
-            ]
-        },
-        "e8b44ab0-781e-4fa0-bdd0-773c899f63de": {
-            "task": "make title blue",
-            "repo_url": "https://github.com/aj47/techfren-website",
-            "workspace": "workspaces\\e8b44ab0-781e-4fa0-bdd0-773c899f63de",
-            "prompt_details": {
-                "task": "make title blue",
-                "status": "unknown",
-                "last_critique": {
-                    "files_created": 2001,
-                    "complexity": "moderate",
-                    "potential_improvements": []
-                }
-            },
-            "files": [
-                "workspaces\\e8b44ab0-781e-4fa0-bdd0-773c899f63de\\config\\prompt.txt"
-            ]
+        "6ffbd851-38df-47bc-b860-f1dcf3a0fe94": {
+            "workspace": "workspaces\\6ffbd851-38df-47bc-b860-f1dcf3a0fe94",
+            "repo_path": null,
+            "task": "make title pink",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
         }
-    }
+    },
+    "repository_url": ""
 }

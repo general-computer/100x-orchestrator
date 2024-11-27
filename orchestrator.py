@@ -7,11 +7,9 @@ from litellm import completion
 from config import ConfigManager
 import threading
 import datetime
-import pty
+import queue
 import io
-import fcntl
-import termios
-import select
+import errno
 
 # ANSI escape codes for color and formatting
 class Colors:
@@ -24,7 +22,10 @@ TASKS_FILE = Path("tasks/tasks.json")
 config_manager = ConfigManager()
 tools, available_functions = [], {}
 MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
-CHECK_INTERVAL = 300  # 5 minutes between agent checks
+CHECK_INTERVAL = 30  # Reduced to 30 seconds for more frequent updates
+
+# Global dictionary to store aider sessions
+aider_sessions = {}
 
 class AiderSession:
     def __init__(self, workspace_path, task):
@@ -32,82 +33,149 @@ class AiderSession:
         self.task = task
         self.output_buffer = io.StringIO()
         self.process = None
-        self.master_fd = None
-        self.slave_fd = None
+        self.output_queue = queue.Queue()
+        self._stop_event = threading.Event()
 
     def start(self):
-        """Start the aider session in a pseudo-terminal"""
+        """Start the aider session"""
         try:
-            # Create pseudo-terminal
-            self.master_fd, self.slave_fd = pty.openpty()
-            # Make the master non-blocking
-            flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
+            # Create startupinfo to hide console window
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
             # Start aider process
             cmd = f'aider --mini --message "{self.task}"'
             self.process = subprocess.Popen(
                 cmd,
                 shell=True,
                 cwd=self.workspace_path,
-                stdin=self.slave_fd,
-                stdout=self.slave_fd,
-                stderr=self.slave_fd,
-                start_new_session=True
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                startupinfo=startupinfo,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
 
-            # Start output reading thread
-            threading.Thread(target=self._read_output, daemon=True).start()
+            # Start output reading threads
+            threading.Thread(target=self._read_output, args=(self.process.stdout,), daemon=True).start()
+            threading.Thread(target=self._read_output, args=(self.process.stderr,), daemon=True).start()
+            threading.Thread(target=self._process_output, daemon=True).start()
+
             return True
         except Exception as e:
             print(f"{Colors.FAIL}Failed to start aider session: {e}{Colors.ENDC}")
             return False
 
-    def _read_output(self):
-        """Read output from the pseudo-terminal"""
+    def _read_output(self, pipe):
+        """Read output from a pipe and put it in the queue"""
         try:
-            while self.process.poll() is None:  # While process is running
-                ready, _, _ = select.select([self.master_fd], [], [], 0.1)
-                if ready:
-                    try:
-                        output = os.read(self.master_fd, 1024).decode()
-                        self.output_buffer.write(output)
-                    except (OSError, IOError) as e:
-                        if e.errno != errno.EAGAIN:  # Ignore would-block errors
-                            break
+            for line in iter(pipe.readline, ''):
+                if self._stop_event.is_set():
+                    break
+                self.output_queue.put(line)
         except Exception as e:
-            print(f"{Colors.FAIL}Error reading aider output: {e}{Colors.ENDC}")
+            print(f"{Colors.FAIL}Error reading output: {e}{Colors.ENDC}")
+        finally:
+            try:
+                pipe.close()
+            except Exception as e:
+                print(f"{Colors.FAIL}Error closing pipe: {e}{Colors.ENDC}")
+
+    def _process_output(self):
+        """Process output from the queue and write to buffer"""
+        while not self._stop_event.is_set():
+            try:
+                line = self.output_queue.get(timeout=0.1)
+                self.output_buffer.write(line)
+                # Update the output in tasks.json immediately
+                self._update_output_in_tasks()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"{Colors.FAIL}Error processing output: {e}{Colors.ENDC}")
+                break
+
+    def _update_output_in_tasks(self):
+        """Update the output in tasks.json"""
+        try:
+            tasks_data = load_tasks()
+            for agent_id, agent_data in tasks_data['agents'].items():
+                if agent_data.get('workspace') == str(self.workspace_path):
+                    agent_data['aider_output'] = self.get_output()
+                    save_tasks(tasks_data)
+                    break
+        except Exception as e:
+            print(f"{Colors.FAIL}Error updating output in tasks: {e}{Colors.ENDC}")
 
     def get_output(self):
         """Get the current output buffer contents"""
-        return self.output_buffer.getvalue()
+        try:
+            return self.output_buffer.getvalue()
+        except Exception as e:
+            print(f"{Colors.FAIL}Error getting output: {e}{Colors.ENDC}")
+            return ""
 
     def cleanup(self):
         """Clean up the aider session"""
-        if self.process:
-            self.process.terminate()
-            self.process.wait()
-        if self.master_fd:
-            os.close(self.master_fd)
-        if self.slave_fd:
-            os.close(self.slave_fd)
+        try:
+            self._stop_event.set()
+            if self.process:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+        except Exception as e:
+            print(f"{Colors.FAIL}Error during cleanup: {e}{Colors.ENDC}")
 
 def load_tasks():
     """Load tasks from tasks.json."""
     try:
         with open(TASKS_FILE, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            if 'repository_url' not in data:
+                data['repository_url'] = config_manager.get_repository_url()
+            return data
     except FileNotFoundError:
-        return {"tasks": [], "agents": {}}
+        return {
+            "tasks": [],
+            "agents": {},
+            "repository_url": config_manager.get_repository_url()
+        }
     except json.JSONDecodeError:
         print(f"{Colors.FAIL}Error decoding tasks.json{Colors.ENDC}")
-        return {"tasks": [], "agents": {}}
+        return {
+            "tasks": [],
+            "agents": {},
+            "repository_url": config_manager.get_repository_url()
+        }
 
 def save_tasks(tasks_data):
     """Save tasks to tasks.json."""
     try:
+        # Create a copy of the data to avoid modifying the original
+        data_to_save = {
+            "tasks": tasks_data.get("tasks", []),
+            "agents": {},
+            "repository_url": tasks_data.get("repository_url", config_manager.get_repository_url())
+        }
+        
+        # Copy agent data without the session object
+        for agent_id, agent_data in tasks_data.get("agents", {}).items():
+            data_to_save["agents"][agent_id] = {
+                'workspace': agent_data.get('workspace'),
+                'repo_path': agent_data.get('repo_path'),
+                'task': agent_data.get('task'),
+                'status': agent_data.get('status'),
+                'created_at': agent_data.get('created_at'),
+                'last_updated': agent_data.get('last_updated'),
+                'aider_output': agent_data.get('aider_output', ''),
+                'last_critique': agent_data.get('last_critique')
+            }
+        
         with open(TASKS_FILE, 'w') as f:
-            json.dump(tasks_data, f, indent=4)
+            json.dump(data_to_save, f, indent=4)
     except Exception as e:
         print(f"{Colors.FAIL}Error saving tasks: {e}{Colors.ENDC}")
 
@@ -121,8 +189,9 @@ def delete_agent(agent_id):
             agent_data = tasks_data['agents'][agent_id]
             
             # Cleanup aider session if it exists
-            if 'aider_session' in agent_data:
-                agent_data['aider_session'].cleanup()
+            if agent_id in aider_sessions:
+                aider_sessions[agent_id].cleanup()
+                del aider_sessions[agent_id]
             
             # Remove workspace directory if it exists
             workspace = agent_data.get('workspace')
@@ -160,6 +229,14 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
     created_agent_ids = []
     
     try:
+        # Load tasks data to get repository URL
+        tasks_data = load_tasks()
+        if repository_url:
+            tasks_data['repository_url'] = repository_url
+            save_tasks(tasks_data)
+        else:
+            repository_url = tasks_data.get('repository_url')
+        
         for _ in range(num_agents):
             # Generate unique agent ID
             agent_id = str(uuid.uuid4())
@@ -191,8 +268,12 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             try:
                 # Clone repository into repo subdirectory
                 os.chdir(workspace_dirs["repo"])
-                repo_url = repository_url or config_manager.get_repository_url()
-                if not cloneRepository(repo_url):
+                if not repository_url:
+                    print(f"{Colors.FAIL}No repository URL provided{Colors.ENDC}")
+                    shutil.rmtree(agent_workspace)
+                    continue
+                
+                if not cloneRepository(repository_url):
                     print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
                     shutil.rmtree(agent_workspace)
                     continue
@@ -226,12 +307,14 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                     shutil.rmtree(agent_workspace)
                     continue
 
+                # Store session in global dictionary
+                aider_sessions[agent_id] = aider_session
+
             finally:
                 # Always return to original directory
                 os.chdir(original_dir)
             
             # Update tasks.json with new agent
-            tasks_data = load_tasks()
             tasks_data['agents'][agent_id] = {
                 'workspace': str(agent_workspace),
                 'repo_path': str(full_repo_path),
@@ -239,8 +322,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 'status': 'pending',
                 'created_at': datetime.datetime.now().isoformat(),
                 'last_updated': datetime.datetime.now().isoformat(),
-                'aider_output': '',  # Initialize empty output
-                'aider_session': aider_session  # Store session object
+                'aider_output': ''  # Initialize empty output
             }
             save_tasks(tasks_data)
             
@@ -257,6 +339,9 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
 def cloneRepository(repository_url: str) -> bool:
     """Clone git repository using subprocess.check_call."""
     try:
+        if not repository_url:
+            print(f"{Colors.FAIL}No repository URL provided{Colors.ENDC}")
+            return False
         subprocess.check_call(f"git clone {repository_url}", shell=True)
         return True
     except subprocess.CalledProcessError as e:
@@ -274,7 +359,12 @@ def critique_agent_progress(agent_id):
             return None
         
         # Use repo_path for file search
-        workspace = Path(agent_data.get('repo_path', ''))
+        repo_path = agent_data.get('repo_path')
+        if not repo_path:
+            print(f"{Colors.WARNING}No repo path found for agent {agent_id}{Colors.ENDC}")
+            return None
+            
+        workspace = Path(repo_path)
         if not workspace.exists():
             print(f"{Colors.WARNING}Workspace path does not exist: {workspace}{Colors.ENDC}")
             return None
@@ -291,8 +381,8 @@ def critique_agent_progress(agent_id):
         agent_data['status'] = 'in_progress' if len(src_files) > 0 else 'pending'
         
         # Update aider output
-        if 'aider_session' in agent_data:
-            agent_data['aider_output'] = agent_data['aider_session'].get_output()
+        if agent_id in aider_sessions:
+            agent_data['aider_output'] = aider_sessions[agent_id].get_output()
         
         agent_data['last_critique'] = critique
         agent_data['last_updated'] = datetime.datetime.now().isoformat()
