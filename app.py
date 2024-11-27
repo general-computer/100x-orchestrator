@@ -29,19 +29,34 @@ def agent_view():
     time_until_next_check = int((next_check - now).total_seconds())
     
     # Enrich agent data with more details
-    for agent_id, agent in agents.items():
-        # Load prompt file for additional details
-        prompt_file = Path(agent['workspace']) / 'config' / 'prompt.txt'
+    for agent_id, agent in list(agents.items()):  # Use list() to allow modification during iteration
+        # Ensure workspace exists, use a default if not
+        if 'workspace' not in agent:
+            agent['workspace'] = os.path.join('workspaces', agent_id)
+            # Update tasks_data to persist the workspace
+            tasks_data['agents'][agent_id]['workspace'] = agent['workspace']
+        
+        # Safely load prompt file
         try:
-            with open(prompt_file, 'r') as f:
-                prompt_data = json.load(f)
-                agent['prompt_details'] = prompt_data
-        except FileNotFoundError:
+            prompt_file = Path(agent['workspace']) / 'config' / 'prompt.txt'
+            if prompt_file.exists():
+                with open(prompt_file, 'r') as f:
+                    prompt_data = json.load(f)
+                    agent['prompt_details'] = prompt_data
+            else:
+                agent['prompt_details'] = {}
+        except (FileNotFoundError, json.JSONDecodeError):
             agent['prompt_details'] = {}
         
         # Calculate workspace files
-        workspace = Path(agent['workspace'])
-        agent['files'] = [str(f) for f in workspace.glob('**/*') if f.is_file()]
+        try:
+            workspace = Path(agent['workspace'])
+            agent['files'] = [str(f) for f in workspace.glob('**/*') if f.is_file()]
+        except Exception:
+            agent['files'] = []
+    
+    # Save updated tasks data to persist workspace paths
+    save_tasks(tasks_data)
     
     return render_template('agent_view.html', 
                            agents=agents, 
@@ -85,7 +100,8 @@ def create_agent():
         for agent_id in created_agents:
             tasks_data['agents'][agent_id] = {
                 'task': tasks_data['tasks'][-1],  # Last added task
-                'repo_url': repo_url
+                'repo_url': repo_url,
+                'workspace': os.path.join('workspaces', agent_id)  # Add workspace path
             }
         
         # Save updated tasks

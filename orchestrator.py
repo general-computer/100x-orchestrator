@@ -56,7 +56,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             shutil.rmtree(agent_workspace)
         
         # Create standard directory structure
-        for dir_name in ["src", "tests", "docs", "config"]:
+        for dir_name in ["src", "tests", "docs", "config", "repo"]:
             (agent_workspace / dir_name).mkdir(parents=True, exist_ok=True)
             
         # Validate task description
@@ -72,12 +72,23 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         original_dir = Path.cwd()
         
         try:
-            # Clone repository and create new branch
-            os.chdir(agent_workspace)
+            # Clone repository into repo subdirectory
+            os.chdir(agent_workspace / "repo")
             repo_url = repository_url or os.environ.get('REPOSITORY_URL')
             if not cloneRepository(repo_url):
                 print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
                 return None
+            
+            # Get the cloned repository directory name
+            repo_dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
+            if not repo_dirs:
+                print(f"{Colors.FAIL}No repository directory found after cloning{Colors.ENDC}")
+                return None
+            
+            repo_dir = repo_dirs[0]
+            
+            # Change to the cloned repository directory
+            os.chdir(repo_dir)
             
             # Create and checkout new branch
             branch_name = f"agent-{agent_id[:8]}"
@@ -94,6 +105,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
         tasks_data = load_tasks()
         tasks_data['agents'][agent_id] = {
             'workspace': str(agent_workspace),
+            'repo_path': str(agent_workspace / "repo" / repo_dir),
             'task': task_description,
             'status': 'pending',
             'created_at': datetime.datetime.now().isoformat(),
@@ -128,8 +140,8 @@ def critique_agent_progress(agent_id):
             print(f"{Colors.FAIL}No agent found with ID {agent_id}{Colors.ENDC}")
             return None
         
-        # Simulate progress critique (replace with actual AI-based critique)
-        workspace = Path(agent_data['workspace'])
+        # Use repo_path for file search
+        workspace = Path(agent_data['repo_path'])
         src_files = list(workspace.glob('**/*.py'))  # Check Python files
         
         critique = {
