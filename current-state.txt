@@ -1,0 +1,48 @@
+Source URL: https://github.com/aj47/block-editor/tree/2.1-exponent-dev
+Rules: Create 2 sub agents per task
+New Feature Requirements:
+- add audio waveform to timeline
+- make help button more obvious, and make all hotkeys configurable
+- choose which labels you want to export
+Standards:
+- Always use Test Driven Development
+Progress:
+- Initial project setup complete
+- Planning phase initiated
+- Creating agents for each task
+
+Tasks:
+1. Audio Waveform Integration
+   Agent 1: Audio Waveform Developer
+   Agent 2: Timeline Integration Specialist
+
+2. Help Button and Hotkey Configuration
+   Agent 3: UI/UX Developer
+   Agent 4: Hotkey Configuration Specialist
+
+3. Label Export Selection
+   Agent 5: Export Functionality Developer
+   Agent 6: UI Integration Specialist
+
+Next Steps:
+- Clone the source repository for each agent
+- Set up development environments
+- Begin Test-Driven Development for each feature
+Agent Audio Waveform Developer completed the task: Develop a feature to add audio waveform to the timeline using Test Driven Development. Focus on creating the core functionality for generating and rendering the waveform.
+Agent Timeline Integration Specialist completed the task: Integrate the audio waveform feature into the existing timeline component. Ensure smooth interaction between the waveform and other timeline elements.
+Agent UI/UX Developer completed the task: Redesign the help button to make it more obvious and create a user interface for configuring hotkeys. Use Test Driven Development approach.
+Agent Hotkey Configuration Specialist completed the task: Implement the backend functionality for making all hotkeys configurable. Ensure proper integration with the UI created by the UI/UX Developer. Use Test Driven Development.
+Agent Export Functionality Developer completed the task: Develop the core functionality to allow users to choose which labels they want to export. Implement this feature using Test Driven Development.
+Agent UI Integration Specialist completed the task: Create and integrate a user interface for selecting which labels to export. Ensure seamless integration with the core functionality developed by the Export Functionality Developer. Use Test Driven Development.
+Agent Audio Waveform Developer completed the task: Review and optimize the audio waveform generation and rendering. Ensure it works with various audio formats and file sizes. Implement performance tests and optimize for larger files if necessary.
+Agent Timeline Integration Specialist completed the task: Perform thorough testing of the integrated audio waveform in the timeline. Ensure smooth zooming, scrolling, and interaction with other timeline elements. Implement stress tests with complex timelines.
+Agent UI/UX Developer completed the task: Conduct user testing for the redesigned help button and hotkey configuration interface. Gather feedback and make necessary adjustments to improve user experience.
+Agent Hotkey Configuration Specialist completed the task: Implement conflict resolution for hotkey configurations. Ensure that users cannot set conflicting hotkeys and provide clear feedback when conflicts occur. Update tests accordingly.
+Agent Export Functionality Developer completed the task: Implement batch export functionality for selected labels. Ensure the export process is efficient for large projects with many labels. Add progress indicators and error handling.
+Agent UI Integration Specialist completed the task: Enhance the label export UI with search and filter capabilities for easier selection of labels in large projects. Implement real-time preview of selected labels. Update tests to cover new functionality.
+Agent Integration Tester completed the task: Perform comprehensive integration testing of all new features: audio waveform in timeline, redesigned help button, configurable hotkeys, and label export selection. Ensure all components work together without conflicts. Report any issues or inconsistencies.
+Agent Performance Optimizer completed the task: Analyze the performance of the entire application, focusing on the new features. Identify and optimize any performance bottlenecks, especially for large projects with complex timelines and numerous labels. Update relevant tests to include performance benchmarks.
+Agent Documentation Specialist completed the task: Update all relevant documentation, including user manuals, API documentation, and developer guides, to reflect the new features and changes. Ensure the documentation is clear, comprehensive, and includes examples of use for each new feature.
+Agent Quality Assurance Lead completed the task: Conduct a final review of all new features, including audio waveform in timeline, redesigned help button, configurable hotkeys, and label export selection. Verify that all features meet the requirements, are well-tested, perform efficiently, and are properly documented. Report any remaining issues or areas for improvement.
+Agent Release Manager completed the task: Compile a comprehensive release report summarizing all new features (audio waveform in timeline, redesigned help button, configurable hotkeys, and label export selection), their implementation status, test results, performance improvements, and documentation updates. Include any known issues or limitations, and provide recommendations for the release.
+Agent Project Manager completed the task: Review the entire project progress, including the Release Manager's report. Confirm that all requirements have been met, all features are fully implemented and tested, and the project is ready for release. If any issues or concerns remain, highlight them and propose next steps. If everything is satisfactory, provide a final go/no-go recommendation for release.
