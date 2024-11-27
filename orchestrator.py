@@ -20,6 +20,7 @@ config_manager = ConfigManager()
 tools, available_functions = [], {}
 MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
 CHECK_INTERVAL = 300  # 5 minutes between agent checks
+DEFAULT_AGENTS_PER_TASK = 1  # Default number of agents to create per task
 
 def load_tasks():
     """Load tasks from tasks.json."""
@@ -40,99 +41,136 @@ def save_tasks(tasks_data):
     except Exception as e:
         print(f"{Colors.FAIL}Error saving tasks: {e}{Colors.ENDC}")
 
-def initialiseCodingAgent(repository_url: str = None, task_description: str = None):
-    """Initialise the coding agent with workspace setup and repository management."""
+def delete_agent(agent_id):
+    """Delete a specific agent and clean up its workspace."""
     try:
-        # Generate unique agent ID
-        agent_id = str(uuid.uuid4())
-        
-        # Create temporary workspace directory
-        agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_"))
-        print(f"{Colors.OKGREEN}Created temporary workspace at: {agent_workspace}{Colors.ENDC}")
-        
-        # Create standard directory structure WITHIN the temporary workspace
-        workspace_dirs = {
-            "src": agent_workspace / "src",
-            "tests": agent_workspace / "tests", 
-            "docs": agent_workspace / "docs", 
-            "config": agent_workspace / "config", 
-            "repo": agent_workspace / "repo"
-        }
-        
-        # Create all directories
-        for dir_path in workspace_dirs.values():
-            dir_path.mkdir(parents=True, exist_ok=True)
-            
-        # Validate task description
-        if not task_description:
-            print(f"{Colors.FAIL}No task description provided{Colors.ENDC}")
-            shutil.rmtree(agent_workspace)
-            return None
-            
-        # Create task file in agent workspace
-        task_file = agent_workspace / "current_task.txt"
-        task_file.write_text(task_description)
-        
-        # Store current directory
-        original_dir = Path.cwd()
-        
-        try:
-            # Clone repository into repo subdirectory
-            os.chdir(workspace_dirs["repo"])
-            repo_url = repository_url or os.environ.get('REPOSITORY_URL')
-            if not cloneRepository(repo_url):
-                print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
-                shutil.rmtree(agent_workspace)
-                return None
-            
-            # Get the cloned repository directory name
-            repo_dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
-            if not repo_dirs:
-                print(f"{Colors.FAIL}No repository directory found after cloning{Colors.ENDC}")
-                shutil.rmtree(agent_workspace)
-                return None
-            
-            repo_dir = repo_dirs[0]
-            full_repo_path = workspace_dirs["repo"] / repo_dir
-            
-            # Change to the cloned repository directory
-            os.chdir(full_repo_path)
-            
-            # Create and checkout new branch
-            branch_name = f"agent-{agent_id[:8]}"
-            try:
-                subprocess.check_call(f"git checkout -b {branch_name}", shell=True)
-            except subprocess.CalledProcessError:
-                print(f"{Colors.FAIL}Failed to create new branch{Colors.ENDC}")
-                shutil.rmtree(agent_workspace)
-                return None
-        finally:
-            # Always return to original directory
-            os.chdir(original_dir)
-        
-        # Update tasks.json with new agent
         tasks_data = load_tasks()
-        tasks_data['agents'][agent_id] = {
-            'workspace': str(agent_workspace),
-            'repo_path': str(full_repo_path),
-            'task': task_description,
-            'status': 'pending',
-            'created_at': datetime.datetime.now().isoformat(),
-            'last_updated': datetime.datetime.now().isoformat()
-        }
-        save_tasks(tasks_data)
         
-        print(f"{Colors.OKGREEN}Successfully initialized agent {agent_id}{Colors.ENDC}")
-        return agent_id
+        # Find and remove the agent
+        if agent_id in tasks_data['agents']:
+            agent_data = tasks_data['agents'][agent_id]
+            
+            # Remove workspace directory if it exists
+            workspace = agent_data.get('workspace')
+            if workspace and os.path.exists(workspace):
+                try:
+                    shutil.rmtree(workspace)
+                    print(f"{Colors.OKGREEN}Removed workspace for agent {agent_id}{Colors.ENDC}")
+                except Exception as e:
+                    print(f"{Colors.WARNING}Could not remove workspace: {e}{Colors.ENDC}")
+            
+            # Remove agent from tasks data
+            del tasks_data['agents'][agent_id]
+            save_tasks(tasks_data)
+            
+            print(f"{Colors.OKGREEN}Successfully deleted agent {agent_id}{Colors.ENDC}")
+            return True
+        else:
+            print(f"{Colors.WARNING}No agent found with ID {agent_id}{Colors.ENDC}")
+            return False
+    except Exception as e:
+        print(f"{Colors.FAIL}Error deleting agent: {e}{Colors.ENDC}")
+        return False
+
+def initialiseCodingAgent(repository_url: str = None, task_description: str = None, num_agents: int = None):
+    """Initialise coding agents with configurable agent count."""
+    # Use provided num_agents or default
+    num_agents = num_agents or DEFAULT_AGENTS_PER_TASK
+    
+    # Validate input
+    if not task_description:
+        print(f"{Colors.FAIL}No task description provided{Colors.ENDC}")
+        return None
+    
+    # Track created agent IDs
+    created_agent_ids = []
+    
+    try:
+        for _ in range(num_agents):
+            # Generate unique agent ID
+            agent_id = str(uuid.uuid4())
+            
+            # Create temporary workspace directory
+            agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_"))
+            print(f"{Colors.OKGREEN}Created temporary workspace at: {agent_workspace}{Colors.ENDC}")
+            
+            # Create standard directory structure WITHIN the temporary workspace
+            workspace_dirs = {
+                "src": agent_workspace / "src",
+                "tests": agent_workspace / "tests", 
+                "docs": agent_workspace / "docs", 
+                "config": agent_workspace / "config", 
+                "repo": agent_workspace / "repo"
+            }
+            
+            # Create all directories
+            for dir_path in workspace_dirs.values():
+                dir_path.mkdir(parents=True, exist_ok=True)
+                
+            # Create task file in agent workspace
+            task_file = agent_workspace / "current_task.txt"
+            task_file.write_text(task_description)
+            
+            # Store current directory
+            original_dir = Path.cwd()
+            
+            try:
+                # Clone repository into repo subdirectory
+                os.chdir(workspace_dirs["repo"])
+                repo_url = repository_url or os.environ.get('REPOSITORY_URL')
+                if not cloneRepository(repo_url):
+                    print(f"{Colors.FAIL}Failed to clone repository{Colors.ENDC}")
+                    shutil.rmtree(agent_workspace)
+                    continue
+                
+                # Get the cloned repository directory name
+                repo_dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
+                if not repo_dirs:
+                    print(f"{Colors.FAIL}No repository directory found after cloning{Colors.ENDC}")
+                    shutil.rmtree(agent_workspace)
+                    continue
+                
+                repo_dir = repo_dirs[0]
+                full_repo_path = workspace_dirs["repo"] / repo_dir
+                
+                # Change to the cloned repository directory
+                os.chdir(full_repo_path)
+                
+                # Create and checkout new branch
+                branch_name = f"agent-{agent_id[:8]}"
+                try:
+                    subprocess.check_call(f"git checkout -b {branch_name}", shell=True)
+                except subprocess.CalledProcessError:
+                    print(f"{Colors.FAIL}Failed to create new branch{Colors.ENDC}")
+                    shutil.rmtree(agent_workspace)
+                    continue
+            finally:
+                # Always return to original directory
+                os.chdir(original_dir)
+            
+            # Update tasks.json with new agent
+            tasks_data = load_tasks()
+            tasks_data['agents'][agent_id] = {
+                'workspace': str(agent_workspace),
+                'repo_path': str(full_repo_path),
+                'task': task_description,
+                'status': 'pending',
+                'created_at': datetime.datetime.now().isoformat(),
+                'last_updated': datetime.datetime.now().isoformat()
+            }
+            save_tasks(tasks_data)
+            
+            print(f"{Colors.OKGREEN}Successfully initialized agent {agent_id}{Colors.ENDC}")
+            created_agent_ids.append(agent_id)
+        
+        return created_agent_ids if created_agent_ids else None
         
     except Exception as e:
-        print(f"{Colors.FAIL}Error initializing coding agent: {str(e)}{Colors.ENDC}")
+        print(f"{Colors.FAIL}Error initializing coding agents: {str(e)}{Colors.ENDC}")
         traceback.print_exc()
-        # Cleanup temporary workspace if it exists
-        if 'agent_workspace' in locals():
-            shutil.rmtree(agent_workspace)
         return None
 
+# Rest of the code remains the same as in the previous implementation
 def cloneRepository(repository_url: str) -> bool:
     """Clone git repository using subprocess.check_call."""
     try:
