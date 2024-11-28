@@ -1,0 +1,80 @@
+Comparison: Current Orchestrator vs Anthropic's Model Context Protocol (MCP)
+
+Current Status:
+--------------
+1. Architecture
+   - Custom implementation focused on Git repository interactions
+   - Direct integration with specific tools (Aider)
+   - Monolithic design with tight coupling between components
+   - Limited extensibility for new data sources
+
+2. Data Access
+   - Repository-centric approach
+   - File system based workspace
+   - Limited to Git repository context
+   - Task-based information flow
+
+3. Integration Points
+   - Single agent type (Aider)
+   - Direct process management
+   - Synchronous communication model
+   - Fixed input/output patterns
+
+MCP Advantages & Gaps:
+--------------------
+1. Architecture Improvements Needed
+   - Implement standardized protocol layer
+   - Decouple data source connections
+   - Create plugin architecture for new connectors
+   - Support multiple AI models/tools
+
+2. Data Access Evolution
+   - Abstract data source interfaces
+   - Universal context protocol
+   - Support for diverse data systems
+   - Bidirectional data flow
+
+3. Integration Enhancements
+   - Standardized connector interfaces
+   - Async communication support
+   - Multiple agent type support
+   - Flexible context sharing
+
+Action Items:
+------------
+1. Short Term (1-2 months)
+   - Create abstraction layer for data sources
+   - Implement plugin architecture
+   - Develop standard protocol for agent communication
+   - Add support for multiple agent types
+
+2. Medium Term (3-6 months)
+   - Build MCP-compatible server implementation
+   - Create connectors for popular services
+   - Implement async communication
+   - Add context persistence layer
+
+3. Long Term (6+ months)
+   - Full MCP protocol compliance
+   - Enterprise integration support
+   - Distributed agent architecture
+   - Advanced context management
+
+Migration Strategy:
+-----------------
+1. Phase 1: Refactor
+   - Abstract current Git operations
+   - Create connector interfaces
+   - Implement basic protocol layer
+
+2. Phase 2: Enhance
+   - Add new data source support
+   - Implement MCP server
+   - Create standard connectors
+
+3. Phase 3: Scale
+   - Enterprise features
+   - Advanced context handling
+   - Multiple model support
+
+This plan aims to evolve our current orchestrator toward MCP compatibility while maintaining existing functionality. The focus is on gradual transformation rather than complete replacement.
