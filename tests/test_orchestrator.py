@@ -154,9 +154,22 @@ def test_main_loop(mock_critique, mock_load_tasks, mock_sleep):
             }
         }
     }
-    mock_sleep.side_effect = Exception("Stop loop")  # Break the infinite loop
     
-    with pytest.raises(Exception, match="Stop loop"):
+    # Create a counter to limit iterations
+    iteration_count = 0
+    def mock_sleep_with_counter(*args):
+        nonlocal iteration_count
+        iteration_count += 1
+        if iteration_count >= 2:  # Break after 2 iterations
+            raise Exception("Loop complete")
+            
+    mock_sleep.side_effect = mock_sleep_with_counter
+    
+    with pytest.raises(Exception, match="Loop complete"):
         main_loop()
     
-    mock_critique.assert_called_once_with("test-agent")
+    # Verify critique was called twice
+    assert mock_critique.call_count == 2
+    assert mock_critique.call_args_list == [
+        ((("test-agent",)),), ((("test-agent",)),)
+    ]
