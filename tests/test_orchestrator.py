@@ -1,6 +1,7 @@
 import pytest
 import json
 import os
+import subprocess
 from pathlib import Path
 import threading
 import queue
@@ -67,7 +68,6 @@ def test_clone_repository_failure(temp_workspace):
     """Test repository cloning failure."""
     with patch('subprocess.check_call', side_effect=subprocess.CalledProcessError(1, "git clone")):
         result = cloneRepository("invalid-url")
-        assert result is False
         assert result is False
 
 def test_load_tasks_new_file():
