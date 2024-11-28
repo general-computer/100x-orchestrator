@@ -12,5 +12,14 @@ def test_aider_session_initialization(temp_workspace):
 def test_clone_repository(temp_workspace):
     """Test repository cloning functionality."""
     # Using a public test repo that's guaranteed to exist
-    result = cloneRepository("https://github.com/pytest-dev/pytest")
-    assert result is True
+    repo_name = "pytest-example"
+    repo_url = "https://github.com/pytest-dev/pytest"
+    # Change to temp workspace before cloning
+    import os
+    original_dir = os.getcwd()
+    os.chdir(temp_workspace)
+    try:
+        result = cloneRepository(repo_url)
+        assert result is True
+    finally:
+        os.chdir(original_dir)
