@@ -5,7 +5,9 @@ from orchestrator import (
     load_tasks, 
     save_tasks, 
     delete_agent,
-    normalize_path
+    normalize_path,
+    validate_agent_paths,
+    aider_sessions  # Add this import
 )
 import os
 import threading

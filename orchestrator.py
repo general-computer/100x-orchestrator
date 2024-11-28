@@ -245,25 +245,69 @@ class AiderSession:
             # Normalize current workspace path
             current_workspace = normalize_path(self.workspace_path)
             
-            for agent_id, agent_data in tasks_data['agents'].items():
-                # Validate paths before updating
-                if validate_agent_paths(agent_id, current_workspace):
-                    logging.debug(f"[Session {self.session_id}] Found matching agent: {agent_id}")
+            # First try to find agent by matching session ID with agent ID
+            matching_agent_id = None
+            for agent_id, session in aider_sessions.items():
+                if session.session_id == self.session_id:
+                    matching_agent_id = agent_id
+                    break
+            
+            if matching_agent_id:
+                logging.debug(f"[Session {self.session_id}] Found matching agent by session ID: {matching_agent_id}")
+                agent_data = tasks_data['agents'].get(matching_agent_id)
+                if agent_data:
+                    # Update the repo_path if it's not set
+                    if not agent_data.get('repo_path'):
+                        agent_data['repo_path'] = current_workspace
+                        logging.info(f"[Session {self.session_id}] Updated repo_path for agent {matching_agent_id}")
                     
-                    # Only update if output has changed
+                    # Update output
                     if current_output != agent_data.get('aider_output', ''):
                         agent_data['aider_output'] = current_output
                         agent_data['last_updated'] = datetime.datetime.now().isoformat()
                         updated = True
-                        logging.info(f"[Session {self.session_id}] Updated output for agent {agent_id}")
-                        logging.debug(f"[Session {self.session_id}] New output length: {len(current_output)}")
-                    break
+                        logging.info(f"[Session {self.session_id}] Updated output for agent {matching_agent_id}")
+            else:
+                # Fall back to path matching if session ID matching fails
+                for agent_id, agent_data in tasks_data['agents'].items():
+                    # Normalize agent paths
+                    agent_workspace = normalize_path(agent_data.get('workspace'))
+                    agent_repo_path = normalize_path(agent_data.get('repo_path'))
+                    
+                    # Log comparison details
+                    logging.debug(f"[Session {self.session_id}] Comparing paths for agent {agent_id}:")
+                    logging.debug(f"Current workspace: {current_workspace}")
+                    logging.debug(f"Agent workspace: {agent_workspace}")
+                    logging.debug(f"Agent repo_path: {agent_repo_path}")
+                    
+                    # Update repo_path if it matches workspace but repo_path isn't set
+                    if current_workspace == agent_workspace and not agent_repo_path:
+                        agent_data['repo_path'] = current_workspace
+                        logging.info(f"[Session {self.session_id}] Updated repo_path for agent {agent_id}")
+                    
+                    # Check if either path matches
+                    if current_workspace in [agent_workspace, agent_repo_path]:
+                        logging.debug(f"[Session {self.session_id}] Found matching agent: {agent_id}")
+                        
+                        # Only update if output has changed
+                        if current_output != agent_data.get('aider_output', ''):
+                            agent_data['aider_output'] = current_output
+                            agent_data['last_updated'] = datetime.datetime.now().isoformat()
+                            updated = True
+                            logging.info(f"[Session {self.session_id}] Updated output for agent {agent_id}")
+                        break
             
             if updated:
                 save_tasks(tasks_data)
                 logging.info(f"[Session {self.session_id}] Saved updated output to tasks.json")
             else:
                 logging.warning(f"[Session {self.session_id}] No matching agent found for workspace {current_workspace}")
+                # Log all workspace paths for debugging
+                logging.debug("Available agent paths:")
+                for aid, adata in tasks_data['agents'].items():
+                    logging.debug(f"Agent {aid}:")
+                    logging.debug(f"  workspace: {normalize_path(adata.get('workspace'))}")
+                    logging.debug(f"  repo_path: {normalize_path(adata.get('repo_path'))}")
                     
         except Exception as e:
             logging.error(f"[Session {self.session_id}] Error updating output in tasks: {e}", exc_info=True)
