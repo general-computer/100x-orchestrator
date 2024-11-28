@@ -1,5 +1,12 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from orchestrator import initialiseCodingAgent, main_loop, load_tasks, save_tasks, delete_agent
+from orchestrator import (
+    initialiseCodingAgent, 
+    main_loop, 
+    load_tasks, 
+    save_tasks, 
+    delete_agent,
+    normalize_path
+)
 import os
 import threading
 import json
@@ -23,18 +30,36 @@ def agent_view():
     tasks_data = load_tasks()
     agents = tasks_data.get('agents', {})
     
-    # Calculate time until next check
+    # Add debug URLs to each agent
+    for agent_id in agents:
+        agents[agent_id]['debug_urls'] = {
+            'info': f'/debug/agent/{agent_id}',
+            'validate': f'/debug/validate_paths/{agent_id}'
+        }
+    
+    # Calculate time until next check (reduced to 30 seconds for more frequent updates)
     now = datetime.datetime.now()
-    next_check = now + datetime.timedelta(seconds=300)  # 5 minutes from now
+    next_check = now + datetime.timedelta(seconds=30)
     time_until_next_check = int((next_check - now).total_seconds())
     
     # Enrich agent data with more details
-    for agent_id, agent in list(agents.items()):  # Use list() to allow modification during iteration
-        # Ensure workspace exists, use a default if not
+    for agent_id, agent in list(agents.items()):
+        # Ensure workspace exists and normalize paths
         if 'workspace' not in agent:
-            agent['workspace'] = os.path.join('workspaces', agent_id)
-            # Update tasks_data to persist the workspace
+            agent['workspace'] = normalize_path(os.path.join('workspaces', agent_id))
             tasks_data['agents'][agent_id]['workspace'] = agent['workspace']
+        else:
+            agent['workspace'] = normalize_path(agent['workspace'])
+            
+        if 'repo_path' in agent:
+            agent['repo_path'] = normalize_path(agent['repo_path'])
+        
+        # Ensure aider_output exists
+        if 'aider_output' not in agent:
+            agent['aider_output'] = ''
+        
+        # Log the output length for debugging
+        app.logger.debug(f"Agent {agent_id} output length: {len(agent.get('aider_output', ''))}")
         
         # Safely load prompt file
         try:
@@ -43,19 +68,24 @@ def agent_view():
                 with open(prompt_file, 'r') as f:
                     prompt_data = json.load(f)
                     agent['prompt_details'] = prompt_data
+                    # Also update aider_output from prompt data if available
+                    if 'aider_output' in prompt_data and prompt_data['aider_output']:
+                        agent['aider_output'] = prompt_data['aider_output']
             else:
                 agent['prompt_details'] = {}
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            app.logger.error(f"Error loading prompt file for agent {agent_id}: {str(e)}")
             agent['prompt_details'] = {}
         
         # Calculate workspace files
         try:
             workspace = Path(agent['workspace'])
-            agent['files'] = [str(f) for f in workspace.glob('**/*') if f.is_file()]
-        except Exception:
+            agent['files'] = [str(f.relative_to(workspace)) for f in workspace.glob('**/*') if f.is_file()]
+        except Exception as e:
+            app.logger.error(f"Error getting files for agent {agent_id}: {str(e)}")
             agent['files'] = []
     
-    # Save updated tasks data to persist workspace paths
+    # Save updated tasks data
     save_tasks(tasks_data)
     
     return render_template('agent_view.html', 
@@ -178,6 +208,120 @@ def remove_agent(agent_id):
     except Exception as e:
         return jsonify({
             'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/debug/agent/<agent_id>')
+def debug_agent(agent_id):
+    """Debug endpoint to show agent details and path information."""
+    try:
+        tasks_data = load_tasks()
+        agent_data = tasks_data['agents'].get(agent_id)
+        
+        if not agent_data:
+            return jsonify({
+                'error': f'Agent {agent_id} not found'
+            }), 404
+            
+        # Get normalized paths
+        workspace_path = normalize_path(agent_data.get('workspace'))
+        repo_path = normalize_path(agent_data.get('repo_path'))
+        
+        # Get aider session info if it exists
+        aider_session = aider_sessions.get(agent_id)
+        aider_workspace = normalize_path(aider_session.workspace_path) if aider_session else None
+        
+        debug_info = {
+            'agent_id': agent_id,
+            'paths': {
+                'workspace': {
+                    'raw': agent_data.get('workspace'),
+                    'normalized': workspace_path,
+                    'exists': os.path.exists(workspace_path) if workspace_path else False
+                },
+                'repo_path': {
+                    'raw': agent_data.get('repo_path'),
+                    'normalized': repo_path,
+                    'exists': os.path.exists(repo_path) if repo_path else False
+                },
+                'aider_workspace': {
+                    'raw': aider_session.workspace_path if aider_session else None,
+                    'normalized': aider_workspace,
+                    'exists': os.path.exists(aider_workspace) if aider_workspace else False
+                }
+            },
+            'aider_session': {
+                'exists': aider_session is not None,
+                'output_buffer_length': len(aider_session.get_output()) if aider_session else 0,
+                'session_id': aider_session.session_id if aider_session else None
+            },
+            'agent_data': {
+                'status': agent_data.get('status'),
+                'created_at': agent_data.get('created_at'),
+                'last_updated': agent_data.get('last_updated'),
+                'aider_output_length': len(agent_data.get('aider_output', '')),
+                'task': agent_data.get('task')
+            }
+        }
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        app.logger.error(f"Error in debug endpoint: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/debug/validate_paths/<agent_id>')
+def debug_validate_paths(agent_id):
+    """Debug endpoint to validate path matching for an agent."""
+    try:
+        tasks_data = load_tasks()
+        agent_data = tasks_data['agents'].get(agent_id)
+        
+        if not agent_data:
+            return jsonify({
+                'error': f'Agent {agent_id} not found'
+            }), 404
+        
+        # Get aider session
+        aider_session = aider_sessions.get(agent_id)
+        
+        validation_results = {
+            'agent_id': agent_id,
+            'paths': {
+                'workspace': {
+                    'raw': agent_data.get('workspace'),
+                    'normalized': normalize_path(agent_data.get('workspace'))
+                },
+                'repo_path': {
+                    'raw': agent_data.get('repo_path'),
+                    'normalized': normalize_path(agent_data.get('repo_path'))
+                },
+                'aider_workspace': {
+                    'raw': aider_session.workspace_path if aider_session else None,
+                    'normalized': normalize_path(aider_session.workspace_path) if aider_session else None
+                }
+            },
+            'validation': {
+                'has_aider_session': aider_session is not None
+            }
+        }
+        
+        if aider_session:
+            # Validate paths
+            validation_results['validation']['path_match'] = validate_agent_paths(
+                agent_id, 
+                aider_session.workspace_path
+            )
+            validation_results['validation']['output_length'] = len(aider_session.get_output())
+            validation_results['validation']['stored_output_length'] = len(agent_data.get('aider_output', ''))
+        
+        return jsonify(validation_results)
+        
+    except Exception as e:
+        app.logger.error(f"Error in path validation debug endpoint: {str(e)}", exc_info=True)
+        return jsonify({
             'error': str(e)
         }), 500
 

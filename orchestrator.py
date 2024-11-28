@@ -37,48 +37,139 @@ CHECK_INTERVAL = 30  # Reduced to 30 seconds for more frequent updates
 # Global dictionary to store aider sessions
 aider_sessions = {}
 
+def normalize_path(path_str):
+    """Normalize a path string to absolute path with forward slashes."""
+    if not path_str:
+        return None
+    try:
+        # Convert to Path object and resolve to absolute path
+        path = Path(path_str).resolve()
+        # Convert to string with forward slashes
+        normalized = str(path).replace('\\', '/')
+        # Log both the input and output paths
+        logging.debug(f"Path normalization: {path_str} -> {normalized}")
+        return normalized
+    except Exception as e:
+        logging.error(f"Error normalizing path {path_str}: {e}")
+        return None
+
+def validate_agent_paths(agent_id, workspace_path):
+    """Validate that an agent's paths match the given workspace path."""
+    try:
+        tasks_data = load_tasks()
+        agent_data = tasks_data['agents'].get(agent_id)
+        
+        if not agent_data:
+            logging.error(f"No agent found with ID {agent_id}")
+            return False
+            
+        # Normalize all paths for comparison
+        workspace_path = normalize_path(workspace_path)
+        agent_workspace = normalize_path(agent_data.get('workspace'))
+        agent_repo_path = normalize_path(agent_data.get('repo_path'))
+        
+        logging.info(f"Validating paths for agent {agent_id}:")
+        logging.info(f"  Workspace path: {workspace_path}")
+        logging.info(f"  Agent workspace: {agent_workspace}")
+        logging.info(f"  Agent repo path: {agent_repo_path}")
+        
+        # Check if paths match
+        matches_workspace = workspace_path == agent_workspace
+        matches_repo = workspace_path == agent_repo_path
+        
+        logging.info(f"Path validation results for agent {agent_id}:")
+        logging.info(f"  Matches workspace: {matches_workspace}")
+        logging.info(f"  Matches repo path: {matches_repo}")
+        
+        return matches_workspace or matches_repo
+        
+    except Exception as e:
+        logging.error(f"Error validating agent paths: {e}", exc_info=True)
+        return False
+
 class AiderSession:
     def __init__(self, workspace_path, task):
-        self.workspace_path = workspace_path
+        self.workspace_path = normalize_path(workspace_path)
         self.task = task
         self.output_buffer = io.StringIO()
         self.process = None
         self.output_queue = queue.Queue()
         self._stop_event = threading.Event()
         self.session_id = str(uuid.uuid4())[:8]  # For logging
-        logging.info(f"[Session {self.session_id}] Initialized with workspace: {workspace_path}")
+        logging.info(f"[Session {self.session_id}] Initialized with workspace: {self.workspace_path}")
+        
+        # Validate paths immediately
+        for agent_id in aider_sessions:
+            if validate_agent_paths(agent_id, self.workspace_path):
+                logging.info(f"[Session {self.session_id}] Successfully validated paths for agent {agent_id}")
+            else:
+                logging.warning(f"[Session {self.session_id}] Path validation failed for agent {agent_id}")
 
     def start(self):
         """Start the aider session"""
         try:
-            logging.info(f"[Session {self.session_id}] Starting aider session")
+            logging.info(f"[Session {self.session_id}] Starting aider session in workspace: {self.workspace_path}")
             
             # Create startupinfo to hide console window
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
-            # Start aider process
+            # Start aider process with unbuffered output
             cmd = f'aider --mini --message "{self.task}"'
             logging.info(f"[Session {self.session_id}] Executing command: {cmd}")
+            
+            # Set up environment with forced unbuffering
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'
             
             self.process = subprocess.Popen(
                 cmd,
                 shell=True,
-                cwd=self.workspace_path,
+                cwd=str(Path(self.workspace_path).resolve()),  # Ensure absolute path
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 startupinfo=startupinfo,
                 text=True,
-                bufsize=1,
-                universal_newlines=True
+                bufsize=1,  # Line buffered
+                universal_newlines=True,
+                env=env
             )
             
             logging.info(f"[Session {self.session_id}] Process started with PID: {self.process.pid}")
+            logging.info(f"[Session {self.session_id}] Working directory: {self.workspace_path}")
 
             # Start output reading threads
-            threading.Thread(target=self._read_output, args=(self.process.stdout, "stdout"), daemon=True).start()
-            threading.Thread(target=self._read_output, args=(self.process.stderr, "stderr"), daemon=True).start()
-            threading.Thread(target=self._process_output, daemon=True).start()
+            stdout_thread = threading.Thread(
+                target=self._read_output, 
+                args=(self.process.stdout, "stdout"), 
+                daemon=True,
+                name=f"stdout-{self.session_id}"
+            )
+            stderr_thread = threading.Thread(
+                target=self._read_output, 
+                args=(self.process.stderr, "stderr"), 
+                daemon=True,
+                name=f"stderr-{self.session_id}"
+            )
+            process_thread = threading.Thread(
+                target=self._process_output, 
+                daemon=True,
+                name=f"process-{self.session_id}"
+            )
+            
+            stdout_thread.start()
+            stderr_thread.start()
+            process_thread.start()
+            
+            logging.info(f"[Session {self.session_id}] Started output processing threads")
+
+            # Verify threads are running
+            for thread in [stdout_thread, stderr_thread, process_thread]:
+                if not thread.is_alive():
+                    logging.error(f"[Session {self.session_id}] Thread {thread.name} failed to start")
+                    return False
+                logging.info(f"[Session {self.session_id}] Thread {thread.name} is running")
 
             return True
         except Exception as e:
@@ -94,6 +185,8 @@ class AiderSession:
                     break
                 logging.debug(f"[Session {self.session_id}] {pipe_name} received: {line.strip()}")
                 self.output_queue.put(line)
+                # Flush the pipe to ensure we get output immediately
+                pipe.flush()
         except Exception as e:
             logging.error(f"[Session {self.session_id}] Error reading from {pipe_name}: {e}", exc_info=True)
         finally:
@@ -106,52 +199,89 @@ class AiderSession:
     def _process_output(self):
         """Process output from the queue and write to buffer"""
         logging.info(f"[Session {self.session_id}] Started output processing thread")
+        buffer_update_count = 0
+        
         while not self._stop_event.is_set():
             try:
-                line = self.output_queue.get(timeout=0.1)
-                current_pos = self.output_buffer.tell()
-                self.output_buffer.write(line)
-                logging.debug(f"[Session {self.session_id}] Processed output line: {line.strip()}")
+                # Reduced timeout for more frequent updates
+                try:
+                    line = self.output_queue.get(timeout=0.05)
+                except queue.Empty:
+                    continue
                 
-                # Log buffer position changes
-                new_pos = self.output_buffer.tell()
-                logging.debug(f"[Session {self.session_id}] Buffer position moved from {current_pos} to {new_pos}")
+                # Lock for thread safety when updating buffer
+                with threading.Lock():
+                    self.output_buffer.seek(0, 2)  # Seek to end
+                    self.output_buffer.write(line)
+                    buffer_update_count += 1
+                    
+                    # Log buffer status
+                    current_content = self.output_buffer.getvalue()
+                    logging.debug(f"[Session {self.session_id}] Buffer update #{buffer_update_count}")
+                    logging.debug(f"[Session {self.session_id}] Current buffer length: {len(current_content)}")
+                    logging.debug(f"[Session {self.session_id}] Last line added: {line.strip()}")
+                    
+                    # Update tasks.json every 5 buffer updates or if line contains important content
+                    if buffer_update_count % 5 == 0 or any(keyword in line for keyword in ['Error:', 'Warning:', 'Success:']):
+                        self._update_output_in_tasks()
+                        logging.debug(f"[Session {self.session_id}] Forced tasks.json update after {buffer_update_count} updates")
                 
-                # Update the output in tasks.json immediately
-                self._update_output_in_tasks()
-            except queue.Empty:
-                continue
             except Exception as e:
                 logging.error(f"[Session {self.session_id}] Error processing output: {e}", exc_info=True)
-                break
+                # Don't break on error, try to continue processing
+                continue
 
     def _update_output_in_tasks(self):
         """Update the output in tasks.json"""
         try:
             tasks_data = load_tasks()
             updated = False
+            current_output = self.get_output()
+            
+            # Log the output being saved
+            logging.debug(f"[Session {self.session_id}] Attempting to save output (length: {len(current_output)})")
+            logging.debug(f"[Session {self.session_id}] Current workspace path: {self.workspace_path}")
+            
+            # Normalize current workspace path
+            current_workspace = normalize_path(self.workspace_path)
+            
             for agent_id, agent_data in tasks_data['agents'].items():
-                if agent_data.get('workspace') == str(self.workspace_path):
-                    current_output = agent_data.get('aider_output', '')
-                    new_output = self.get_output()
-                    if new_output != current_output:
-                        agent_data['aider_output'] = new_output
+                # Validate paths before updating
+                if validate_agent_paths(agent_id, current_workspace):
+                    logging.debug(f"[Session {self.session_id}] Found matching agent: {agent_id}")
+                    
+                    # Only update if output has changed
+                    if current_output != agent_data.get('aider_output', ''):
+                        agent_data['aider_output'] = current_output
+                        agent_data['last_updated'] = datetime.datetime.now().isoformat()
                         updated = True
-                        logging.debug(f"[Session {self.session_id}] Updated output for agent {agent_id}")
-                        logging.debug(f"[Session {self.session_id}] New output length: {len(new_output)}")
+                        logging.info(f"[Session {self.session_id}] Updated output for agent {agent_id}")
+                        logging.debug(f"[Session {self.session_id}] New output length: {len(current_output)}")
                     break
             
             if updated:
                 save_tasks(tasks_data)
                 logging.info(f"[Session {self.session_id}] Saved updated output to tasks.json")
+            else:
+                logging.warning(f"[Session {self.session_id}] No matching agent found for workspace {current_workspace}")
+                    
         except Exception as e:
             logging.error(f"[Session {self.session_id}] Error updating output in tasks: {e}", exc_info=True)
 
     def get_output(self):
         """Get the current output buffer contents"""
         try:
-            output = self.output_buffer.getvalue()
+            # Save current position
+            pos = self.output_buffer.tell()
+            # Go to beginning
+            self.output_buffer.seek(0)
+            # Read all content
+            output = self.output_buffer.read()
+            # Restore position
+            self.output_buffer.seek(pos)
+            
             logging.debug(f"[Session {self.session_id}] Retrieved output (length: {len(output)})")
+            logging.debug(f"[Session {self.session_id}] Output preview: {output[:200]}...")  # Log preview of output
             return output
         except Exception as e:
             logging.error(f"[Session {self.session_id}] Error getting output: {e}", exc_info=True)
@@ -182,6 +312,19 @@ def load_tasks():
             data = json.load(f)
             if 'repository_url' not in data:
                 data['repository_url'] = ""
+                
+            # Normalize paths in loaded data
+            for agent_id, agent_data in data.get('agents', {}).items():
+                if 'workspace' in agent_data:
+                    agent_data['workspace'] = normalize_path(agent_data['workspace'])
+                if 'repo_path' in agent_data:
+                    agent_data['repo_path'] = normalize_path(agent_data['repo_path'])
+                    
+                # Log the normalized paths
+                logging.debug(f"Loaded agent {agent_id} with normalized paths:")
+                logging.debug(f"  workspace: {agent_data.get('workspace')}")
+                logging.debug(f"  repo_path: {agent_data.get('repo_path')}")
+                
             logging.debug(f"Loaded tasks data: {json.dumps(data, indent=2)}")
             return data
     except FileNotFoundError:
@@ -209,11 +352,11 @@ def save_tasks(tasks_data):
             "repository_url": tasks_data.get("repository_url", "")
         }
         
-        # Copy agent data without the session object
+        # Copy agent data without the session object and normalize paths
         for agent_id, agent_data in tasks_data.get("agents", {}).items():
             data_to_save["agents"][agent_id] = {
-                'workspace': agent_data.get('workspace'),
-                'repo_path': agent_data.get('repo_path'),
+                'workspace': normalize_path(agent_data.get('workspace')),
+                'repo_path': normalize_path(agent_data.get('repo_path')),
                 'task': agent_data.get('task'),
                 'status': agent_data.get('status'),
                 'created_at': agent_data.get('created_at'),
@@ -221,6 +364,11 @@ def save_tasks(tasks_data):
                 'aider_output': agent_data.get('aider_output', ''),
                 'last_critique': agent_data.get('last_critique')
             }
+            
+            # Log the normalized paths
+            logging.debug(f"Saving agent {agent_id} with normalized paths:")
+            logging.debug(f"  workspace: {data_to_save['agents'][agent_id]['workspace']}")
+            logging.debug(f"  repo_path: {data_to_save['agents'][agent_id]['repo_path']}")
         
         logging.debug(f"Saving tasks data: {json.dumps(data_to_save, indent=2)}")
         with open(CONFIG_FILE, 'w') as f:
@@ -302,8 +450,8 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             agent_id = str(uuid.uuid4())
             logging.info(f"Generated agent ID: {agent_id}")
             
-            # Create temporary workspace directory
-            agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_"))
+            # Create temporary workspace directory with absolute path
+            agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_")).resolve()
             logging.info(f"Created workspace at: {agent_workspace}")
             
             # Create standard directory structure
@@ -327,6 +475,8 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
             
             # Store current directory
             original_dir = Path.cwd()
+            repo_dir = None
+            full_repo_path = None
             
             try:
                 # Clone repository into repo subdirectory
@@ -351,6 +501,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 
                 repo_dir = repo_dirs[0]
                 full_repo_path = workspace_dirs["repo"] / repo_dir
+                full_repo_path = full_repo_path.resolve()  # Get absolute path
                 logging.info(f"Repository cloned to: {full_repo_path}")
                 
                 # Change to the cloned repository directory
@@ -366,7 +517,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                     shutil.rmtree(agent_workspace)
                     continue
 
-                # Initialize aider session
+                # Initialize aider session with absolute path
                 logging.info("Initializing aider session")
                 aider_session = AiderSession(str(full_repo_path), task_description)
                 if not aider_session.start():
@@ -382,10 +533,10 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 # Always return to original directory
                 os.chdir(original_dir)
             
-            # Update tasks.json with new agent
+            # Update tasks.json with new agent using absolute paths
             tasks_data['agents'][agent_id] = {
-                'workspace': str(agent_workspace),
-                'repo_path': str(full_repo_path),
+                'workspace': normalize_path(agent_workspace),
+                'repo_path': normalize_path(full_repo_path) if full_repo_path else None,
                 'task': task_description,
                 'status': 'pending',
                 'created_at': datetime.datetime.now().isoformat(),
