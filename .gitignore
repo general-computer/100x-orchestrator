@@ -1,1 +1,9 @@
 workspace
+.venv
+*__pycache__*
+workspaces
+.aider*
+.env
+./tasks/tasks.json
+tasks/tasks.json
+aider_debug.log
