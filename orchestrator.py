@@ -11,6 +11,7 @@ import queue
 import io
 import errno
 import logging
+from mcp_sdk import MCPClient
 
 # Configure logging
 logging.basicConfig(

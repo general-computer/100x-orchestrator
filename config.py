@@ -6,6 +6,15 @@ class ConfigManager:
     def __init__(self, config_file: str = "config.json"):
         self.config_file = Path(config_file)
         self.config = self._load_config()
+        self.mcp_config = {
+            "mcpServers": {
+                "orchestrator": {
+                    "command": "python",
+                    "args": ["-m", "mcp_server"],
+                    "env": {}
+                }
+            }
+        }
 
     def _load_config(self) -> Dict:
         """Load configuration from file or create default if not exists."""
