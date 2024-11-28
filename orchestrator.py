@@ -54,25 +54,28 @@ class AiderSession:
         try:
             logging.info(f"[Session {self.session_id}] Starting aider session")
             
-            # Create startupinfo to hide console window
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
             # Start aider process
             cmd = f'aider --mini --message "{self.task}"'
             logging.info(f"[Session {self.session_id}] Executing command: {cmd}")
             
-            self.process = subprocess.Popen(
-                cmd,
-                shell=True,
-                cwd=self.workspace_path,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                startupinfo=startupinfo,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
+            # Platform-specific Popen arguments
+            popen_kwargs = {
+                'shell': True,
+                'cwd': self.workspace_path,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'text': True,
+                'bufsize': 1,
+                'universal_newlines': True
+            }
+            
+            # Add startupinfo on Windows only
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                popen_kwargs['startupinfo'] = startupinfo
+            
+            self.process = subprocess.Popen(cmd, **popen_kwargs)
             
             logging.info(f"[Session {self.session_id}] Process started with PID: {self.process.pid}")
 
