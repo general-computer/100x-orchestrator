@@ -1,5 +1,49 @@
 {
-  "repository_url": "",
-  "tasks": [],
-  "current_task_index": 0
+    "tasks": [
+        "make the title pink",
+        "make the quick links smaller"
+    ],
+    "agents": {
+        "b3560ff2-a0c1-49c0-ba28-fc6ba95c571e": {
+            "workspace": "workspaces\\b3560ff2-a0c1-49c0-ba28-fc6ba95c571e",
+            "repo_path": null,
+            "task": "make the quick links smaller",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
+        },
+        "613ae750-937c-43e3-af70-a0bf8b06d221": {
+            "workspace": "workspaces\\613ae750-937c-43e3-af70-a0bf8b06d221",
+            "repo_path": null,
+            "task": "make the quick links smaller",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
+        },
+        "deb0e6ce-383f-4ff3-b7e9-1f66f5ecfb4a": {
+            "workspace": "workspaces\\deb0e6ce-383f-4ff3-b7e9-1f66f5ecfb4a",
+            "repo_path": null,
+            "task": "make the quick links smaller",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
+        },
+        "ce7e3b5d-78da-45bb-ac35-b55508a454e5": {
+            "workspace": "workspaces\\ce7e3b5d-78da-45bb-ac35-b55508a454e5",
+            "repo_path": null,
+            "task": "make the quick links smaller",
+            "status": null,
+            "created_at": null,
+            "last_updated": null,
+            "aider_output": "",
+            "last_critique": null
+        }
+    },
+    "repository_url": ""
 }

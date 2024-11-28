@@ -4,7 +4,6 @@ import shutil
 import tempfile
 from time import sleep
 from litellm import completion
-from config import ConfigManager
 import threading
 import datetime
 import queue
@@ -28,9 +27,9 @@ class Colors:
     WARNING = '\033[93m'; FAIL = '\033[91m'; ENDC = '\033[0m'; BOLD = '\033[1m'; UNDERLINE = '\033[4m'
 
 # Configuration
+DEFAULT_AGENTS_PER_TASK = 2
 MODEL_NAME = os.environ.get('LITELLM_MODEL', 'anthropic/claude-3-5-sonnet-20240620')
-TASKS_FILE = Path("tasks/tasks.json")
-config_manager = ConfigManager()
+CONFIG_FILE = Path("config.json")
 tools, available_functions = [], {}
 MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
 CHECK_INTERVAL = 30  # Reduced to 30 seconds for more frequent updates
@@ -177,12 +176,12 @@ class AiderSession:
             logging.error(f"[Session {self.session_id}] Error during cleanup: {e}", exc_info=True)
 
 def load_tasks():
-    """Load tasks from tasks.json."""
+    """Load config from config.json."""
     try:
-        with open(TASKS_FILE, 'r') as f:
+        with open(CONFIG_FILE, 'r') as f:
             data = json.load(f)
             if 'repository_url' not in data:
-                data['repository_url'] = config_manager.get_repository_url()
+                data['repository_url'] = ""
             logging.debug(f"Loaded tasks data: {json.dumps(data, indent=2)}")
             return data
     except FileNotFoundError:
@@ -190,14 +189,14 @@ def load_tasks():
         return {
             "tasks": [],
             "agents": {},
-            "repository_url": config_manager.get_repository_url()
+            "repository_url": ""
         }
     except json.JSONDecodeError:
         logging.error("Error decoding tasks.json", exc_info=True)
         return {
             "tasks": [],
             "agents": {},
-            "repository_url": config_manager.get_repository_url()
+            "repository_url": ""
         }
 
 def save_tasks(tasks_data):
@@ -207,7 +206,7 @@ def save_tasks(tasks_data):
         data_to_save = {
             "tasks": tasks_data.get("tasks", []),
             "agents": {},
-            "repository_url": tasks_data.get("repository_url", config_manager.get_repository_url())
+            "repository_url": tasks_data.get("repository_url", "")
         }
         
         # Copy agent data without the session object
@@ -224,7 +223,7 @@ def save_tasks(tasks_data):
             }
         
         logging.debug(f"Saving tasks data: {json.dumps(data_to_save, indent=2)}")
-        with open(TASKS_FILE, 'w') as f:
+        with open(CONFIG_FILE, 'w') as f:
             json.dump(data_to_save, f, indent=4)
         logging.info("Successfully saved tasks data")
     except Exception as e:
@@ -275,7 +274,7 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
     logging.debug(f"Parameters: repo_url={repository_url}, task={task_description}, num_agents={num_agents}")
     
     # Use provided num_agents or get default from config
-    num_agents = num_agents or config_manager.get_default_agents_per_task()
+    num_agents = num_agents or DEFAULT_AGENTS_PER_TASK
     
     # Validate input
     if not task_description:
