@@ -175,8 +175,18 @@ def test_main_loop(mock_save_tasks, mock_critique, mock_load_tasks, mock_sleep):
     mock_sleep.side_effect = mock_sleep_with_counter
     
     # Test that the loop runs and handles interruption
-    with pytest.raises(KeyboardInterrupt, match="Test complete"):
+    try:
         main_loop()
+    except KeyboardInterrupt as e:
+        assert str(e) == "Test complete"
+        # Verify the expected number of calls
+        assert mock_critique.call_count == 2
+        assert mock_save_tasks.call_count >= 2
+        mock_critique.assert_has_calls([
+            ((("test-agent",),)), ((("test-agent",),))
+        ])
+        return
+    pytest.fail("Expected KeyboardInterrupt was not raised")
     
     # Verify the expected number of calls
     assert mock_critique.call_count == 2

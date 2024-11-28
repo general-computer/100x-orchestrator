@@ -514,9 +514,9 @@ def main_loop():
                 logging.error(f"Error in main loop iteration: {e}", exc_info=True)
                 sleep(CHECK_INTERVAL)
                 
-    except KeyboardInterrupt:
-        logging.info("Main loop interrupted by user")
-        raise
+    except KeyboardInterrupt as e:
+        logging.info(f"Main loop interrupted: {str(e)}")
+        raise  # Re-raise the original exception with its message
 
 if __name__ == "__main__":
     logging.info("Starting orchestrator")
