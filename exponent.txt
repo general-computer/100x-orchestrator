@@ -1,0 +1,45 @@
+100x-orchestrator: AI Agent Orchestration System
+
+Overview:
+A sophisticated orchestration system that manages multiple AI coding agents working on software development tasks. The system uses Aider (an AI coding assistant) to handle coding tasks and provides a web interface for monitoring and managing these agents.
+
+Key Components:
+
+1. Orchestrator (orchestrator.py)
+- Manages multiple AI coding agents
+- Handles workspace creation and git repository cloning
+- Monitors agent progress and provides critiques
+- Maintains agent sessions and outputs
+- Uses Aider for code generation and modifications
+
+2. Configuration Manager (config.py)
+- Handles system configuration
+- Manages repository URLs
+- Tracks tasks and their status
+- Controls agent count per task
+- Persists configuration in JSON format
+
+3. Web Interface (app.py)
+- Flask-based web application
+- Provides agent creation and management
+- Displays agent status and progress
+- Allows task assignment and monitoring
+- Supports agent deletion and cleanup
+
+Key Features:
+- Multi-agent task handling
+- Git integration
+- Real-time progress monitoring
+- Workspace isolation
+- Configuration management
+- Web-based control interface
+- Automated code critiquing
+- Session management
+
+Technical Stack:
+- Python
+- Flask
+- Aider
+- Git
+- JSON for configuration
+- Threading for concurrent operations
