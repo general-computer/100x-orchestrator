@@ -9,7 +9,8 @@ def temp_config_file():
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         test_config = {
             "repository_url": "https://github.com/test/repo",
-            "current_task": "test task",
+            "tasks": ["test task"],
+            "current_task_index": 0,
             "default_agents_per_task": 2
         }
         json.dump(test_config, f)
