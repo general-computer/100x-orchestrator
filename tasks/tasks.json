@@ -1,7 +1,11 @@
 {
-    "tasks": [
-        "make the title pink",
-        "make the quick links smaller"
-    ],
-    "agents": {}
+    "tasks": ["Test task 1", "Test task 2"],
+    "agents": {
+        "test-agent-1": {
+            "task": "Test task 1",
+            "workspace": "workspaces/test-agent-1",
+            "status": "pending"
+        }
+    },
+    "repository_url": "https://github.com/test/repo"
 }
