@@ -2,3 +2,7 @@ workspace
 .venv
 *__pycache__*
 workspaces
+aider_debug.log
+.aider.input.history
+.aider.chat.history.md
+.aider.tags.cache.v3
