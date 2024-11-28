@@ -144,15 +144,24 @@ def test_critique_agent_progress(mock_save_tasks, mock_load_tasks, temp_workspac
 @patch('time.sleep')
 @patch('orchestrator.load_tasks')
 @patch('orchestrator.critique_agent_progress')
-def test_main_loop(mock_critique, mock_load_tasks, mock_sleep):
+@patch('orchestrator.save_tasks')
+def test_main_loop(mock_save_tasks, mock_critique, mock_load_tasks, mock_sleep):
     """Test main orchestration loop."""
+    # Setup mock data that doesn't include MagicMock objects
     mock_load_tasks.return_value = {
         "agents": {
             "test-agent": {
                 "workspace": "test/workspace",
-                "status": "pending"
+                "status": "pending",
+                "task": "test task"
             }
         }
+    }
+    
+    # Mock critique to return serializable data
+    mock_critique.return_value = {
+        "files_created": 1,
+        "status": "completed"
     }
     
     # Create a counter to limit iterations
@@ -161,15 +170,17 @@ def test_main_loop(mock_critique, mock_load_tasks, mock_sleep):
         nonlocal iteration_count
         iteration_count += 1
         if iteration_count >= 2:  # Break after 2 iterations
-            raise Exception("Loop complete")
+            raise KeyboardInterrupt("Test complete")
             
     mock_sleep.side_effect = mock_sleep_with_counter
     
-    with pytest.raises(Exception, match="Loop complete"):
+    # Test that the loop runs and handles interruption
+    with pytest.raises(KeyboardInterrupt, match="Test complete"):
         main_loop()
     
-    # Verify critique was called twice
+    # Verify the expected number of calls
     assert mock_critique.call_count == 2
-    assert mock_critique.call_args_list == [
-        ((("test-agent",)),), ((("test-agent",)),)
-    ]
+    assert mock_save_tasks.call_count >= 2
+    mock_critique.assert_has_calls([
+        ((("test-agent",),)), ((("test-agent",),))
+    ])

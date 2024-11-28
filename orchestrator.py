@@ -474,41 +474,49 @@ def critique_agent_progress(agent_id):
 def main_loop():
     """Main orchestration loop to manage agents."""
     logging.info("Starting main orchestration loop")
-    while True:
-        try:
-            # Load current tasks and agents
-            tasks_data = load_tasks()
-            
-            # Check each agent's progress
-            for agent_id, agent_data in list(tasks_data['agents'].items()):
-                logging.info(f"Checking agent {agent_id}")
+    try:
+        while True:
+            try:
+                # Load current tasks and agents
+                tasks_data = load_tasks()
                 
-                # Critique progress
-                critique = critique_agent_progress(agent_id)
+                # Check each agent's progress
+                for agent_id, agent_data in list(tasks_data['agents'].items()):
+                    logging.info(f"Checking agent {agent_id}")
+                    
+                    # Critique progress
+                    critique = critique_agent_progress(agent_id)
+                    if critique:
+                        agent_data['last_critique'] = critique
+                        agent_data['last_updated'] = datetime.datetime.now().isoformat()
+                    
+                    # Update prompt file in temporary workspace
+                    if agent_data.get('workspace'):
+                        prompt_file = Path(agent_data['workspace']) / 'config' / 'prompt.txt'
+                        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+                        prompt_data = {
+                            'task': agent_data.get('task', ''),
+                            'status': agent_data.get('status', 'unknown'),
+                            'last_critique': critique if isinstance(critique, dict) else None,
+                            'aider_output': agent_data.get('aider_output', '')
+                        }
+                        prompt_file.write_text(json.dumps(prompt_data, indent=4))
+                        logging.debug(f"Updated prompt file for agent {agent_id}")
                 
-                # Update prompt file in temporary workspace
-                if agent_data.get('workspace'):
-                    prompt_file = Path(agent_data['workspace']) / 'config' / 'prompt.txt'
-                    prompt_file.parent.mkdir(parents=True, exist_ok=True)
-                    prompt_data = {
-                        'task': agent_data.get('task', ''),
-                        'status': agent_data.get('status', 'unknown'),
-                        'last_critique': critique,
-                        'aider_output': agent_data.get('aider_output', '')
-                    }
-                    prompt_file.write_text(json.dumps(prompt_data, indent=4))
-                    logging.debug(f"Updated prompt file for agent {agent_id}")
+                # Save updated tasks
+                save_tasks(tasks_data)
+                
+                # Wait before next check
+                logging.info(f"Waiting {CHECK_INTERVAL} seconds before next check")
+                sleep(CHECK_INTERVAL)
             
-            # Save updated tasks
-            save_tasks(tasks_data)
-            
-            # Wait before next check
-            logging.info(f"Waiting {CHECK_INTERVAL} seconds before next check")
-            sleep(CHECK_INTERVAL)
-        
-        except Exception as e:
-            logging.error(f"Error in main loop: {e}", exc_info=True)
-            sleep(CHECK_INTERVAL)
+            except Exception as e:
+                logging.error(f"Error in main loop iteration: {e}", exc_info=True)
+                sleep(CHECK_INTERVAL)
+                
+    except KeyboardInterrupt:
+        logging.info("Main loop interrupted by user")
+        raise
 
 if __name__ == "__main__":
     logging.info("Starting orchestrator")
