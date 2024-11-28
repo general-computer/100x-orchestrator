@@ -15,7 +15,10 @@
 </head>
 <body>
     <div class="container">
-        <h1 class="mb-4">Coding Agent Manager</h1>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Coding Agent Manager</h1>
+            <a href="/agents" class="btn btn-primary">View Agents</a>
+        </div>
         
         <div class="card">
             <div class="card-body">
@@ -28,13 +31,16 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="agentCount">Number of Agents per Task</label>
+                        <input type="number" class="form-control" id="agentCount" 
+                               min="1" max="10" value="1" 
+                               placeholder="Number of agents to create for each task">
+                    </div>
+                    
+                    <div class="form-group">
                         <label>Tasks</label>
                         <div id="taskList">
-                            <div class="task-item">
-                                <input type="text" class="form-control task-description" 
-                                       placeholder="Describe the task for the agent..." required>
-                                <button type="button" class="btn btn-danger remove-task" style="display:none;">-</button>
-                            </div>
+                            <!-- Tasks will be dynamically populated here -->
                         </div>
                         <button type="button" id="addTask" class="btn btn-secondary btn-sm mb-2">+ Add Another Task</button>
                     </div>
@@ -50,26 +56,44 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             const taskList = document.getElementById('taskList');
             const addTaskButton = document.getElementById('addTask');
             
-            // Add task button functionality
-            addTaskButton.addEventListener('click', () => {
-                const taskItems = taskList.querySelectorAll('.task-item');
-                const newTaskItem = taskItems[0].cloneNode(true);
+            // Fetch initial tasks from tasks.json
+            try {
+                const tasksResponse = await fetch('/tasks/tasks.json');
+                const tasksData = await tasksResponse.json();
                 
-                // Clear input
-                newTaskItem.querySelector('input').value = '';
-                
-                // Show remove button for all but the first task
-                taskItems.forEach(item => {
-                    item.querySelector('.remove-task').style.display = 'inline-block';
+                // Populate initial tasks
+                tasksData.tasks.forEach((taskDescription, index) => {
+                    const taskItem = createTaskItem(taskDescription, index === 0);
+                    taskList.appendChild(taskItem);
                 });
-                newTaskItem.querySelector('.remove-task').style.display = 'inline-block';
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
+            }
+            
+            // Function to create a task item
+            function createTaskItem(initialValue = '', isFirst = false) {
+                const taskItem = document.createElement('div');
+                taskItem.classList.add('task-item');
                 
-                // Add remove functionality
-                newTaskItem.querySelector('.remove-task').addEventListener('click', (e) => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.classList.add('form-control', 'task-description');
+                input.placeholder = 'Describe the task for the agent...';
+                input.required = true;
+                input.value = initialValue;
+                
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.classList.add('btn', 'btn-danger', 'remove-task');
+                removeButton.textContent = '-';
+                removeButton.style.display = isFirst ? 'none' : 'inline-block';
+                
+                // Remove task functionality
+                removeButton.addEventListener('click', (e) => {
                     const taskItems = taskList.querySelectorAll('.task-item');
                     if (taskItems.length > 1) {
                         e.target.closest('.task-item').remove();
@@ -82,6 +106,22 @@
                     }
                 });
                 
+                taskItem.appendChild(input);
+                taskItem.appendChild(removeButton);
+                
+                return taskItem;
+            }
+            
+            // Add task button functionality
+            addTaskButton.addEventListener('click', () => {
+                const taskItems = taskList.querySelectorAll('.task-item');
+                
+                // Show remove buttons for all existing tasks
+                taskItems.forEach(item => {
+                    item.querySelector('.remove-task').style.display = 'inline-block';
+                });
+                
+                const newTaskItem = createTaskItem();
                 taskList.appendChild(newTaskItem);
             });
             
@@ -98,6 +138,8 @@
                         .map(input => input.value.trim())
                         .filter(task => task !== '');
                     
+                    const agentCount = parseInt(document.getElementById('agentCount').value, 10);
+                    
                     const response = await fetch('/create_agent', {
                         method: 'POST',
                         headers: {
@@ -105,7 +147,8 @@
                         },
                         body: JSON.stringify({
                             repo_url: document.getElementById('repoUrl').value,
-                            tasks: tasks
+                            tasks: tasks,
+                            num_agents: agentCount
                         })
                     });
                     
@@ -114,7 +157,12 @@
                     resultDiv.style.display = 'block';
                     if (data.success) {
                         alertDiv.className = 'alert alert-success';
-                        alertDiv.textContent = `Success! Agents ${data.agent_ids.join(', ')} created.`;
+                        alertDiv.textContent = `Success! Agents ${data.agent_ids.join(', ')} created. Redirecting to Agent View...`;
+                        
+                        // Redirect to agents view after a short delay
+                        setTimeout(() => {
+                            window.location.href = '/agents';
+                        }, 2000);
                     } else {
                         alertDiv.className = 'alert alert-danger';
                         alertDiv.textContent = `Error: ${data.error}`;
