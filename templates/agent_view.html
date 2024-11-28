@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Progress Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         .agent-card { margin-bottom: 1rem; }
         .progress-section { margin-top: 1rem; }
@@ -13,6 +13,10 @@
             font-size: 1.2rem; 
             font-weight: bold; 
             color: #007bff; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
         }
         .delete-agent-btn {
             margin-left: 10px;
@@ -30,22 +34,47 @@
             font-size: 0.9rem;
             line-height: 1.4;
             tab-size: 4;
+            position: relative;
+            border: 1px solid #333;
         }
         .cli-output:empty::before {
             content: 'No output available yet...';
             color: #666;
             font-style: italic;
         }
+        .cli-output.updating {
+            border-color: #51cf66;
+        }
+        .cli-output.updating::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #51cf66;
+            margin: 8px;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
         .debug-info {
             background-color: #f8f9fa;
-            padding: 0.5rem;
+            padding: 0.8rem;
             border-radius: 4px;
             margin-top: 0.5rem;
             font-size: 0.85rem;
+            border: 1px solid #dee2e6;
         }
         .debug-info .label {
             font-weight: bold;
-            color: #666;
+            color: #495057;
+            min-width: 100px;
+            display: inline-block;
         }
         /* Add some basic syntax highlighting */
         .cli-output .error { color: #ff6b6b; }
@@ -58,7 +87,10 @@
             background-color: #f8f9fa;
             padding: 0.5rem 1rem;
             border-radius: 4px;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #dee2e6;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
         /* Improve scrollbar appearance */
@@ -68,6 +100,7 @@
         }
         .cli-output::-webkit-scrollbar-track {
             background: #2e2e2e;
+            border-radius: 4px;
         }
         .cli-output::-webkit-scrollbar-thumb {
             background: #666;
@@ -76,116 +109,254 @@
         .cli-output::-webkit-scrollbar-thumb:hover {
             background: #888;
         }
+
+        /* Add update indicator */
+        .update-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 8px;
+            background-color: #51cf66;
+            animation: pulse 1s infinite;
+        }
+
+        /* Style the debug links */
+        .debug-links {
+            font-size: 0.85rem;
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.25rem;
+        }
+        .debug-links a {
+            color: #6c757d;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .debug-links a:hover {
+            color: #495057;
+        }
+        .debug-links i {
+            font-size: 0.9rem;
+        }
+
+        /* Add some hover effects */
+        .cli-output:hover {
+            border-color: #495057;
+        }
+        .debug-info:hover {
+            border-color: #adb5bd;
+        }
+
+        /* Loading animation */
+        .page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        .loader-content {
+            text-align: center;
+        }
+        .loader-spinner {
+            font-size: 3rem;
+            color: #007bff;
+            margin-bottom: 1rem;
+        }
+        
+        /* Improved toast styling */
+        .toast {
+            background-color: #fff;
+            border: none;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        .toast-header {
+            background-color: transparent;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .toast-body {
+            padding: 1rem;
+        }
+        .toast-body.success {
+            color: #198754;
+            background-color: #d1e7dd;
+        }
+        .toast-body.error {
+            color: #dc3545;
+            background-color: #f8d7da;
+        }
+
+        /* Fade in animation for agent cards */
+        .agent-card {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Improved update indicator */
+        .update-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 1rem;
+            background-color: #198754;
+            color: white;
+            font-size: 0.875rem;
+        }
+        .update-indicator i {
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 <body>
+    <!-- Page loader -->
+    <div class="page-loader">
+        <div class="loader-content">
+            <div class="loader-spinner">
+                <i class="fas fa-circle-notch fa-spin"></i>
+            </div>
+            <h4>Loading Agents...</h4>
+        </div>
+    </div>
+
     <div class="container mt-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>Agent Progress Dashboard</h1>
+            <h1><i class="fas fa-robot me-2"></i>Agent Progress Dashboard</h1>
             <div>
-                <a href="/" class="btn btn-secondary">Back to Agent Creation</a>
+                <a href="/" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Agent Creation
+                </a>
             </div>
         </div>
         
         <div class="timer text-center mb-4">
-            Next Progress Check: <span id="countdown">{{ time_until_next_check }}</span> seconds
+            <i class="fas fa-sync-alt me-2"></i>
+            Next Progress Check: <span id="countdown" class="ms-1">{{ time_until_next_check }}</span> seconds
+            <span id="updateIndicator" class="update-indicator ms-2" style="display: none;" title="Updating...">
+                <i class="fas fa-circle-notch fa-spin"></i>
+            </span>
         </div>
 
         <div id="agentList">
         {% for agent_id, agent in agents.items() %}
         <div class="card agent-card" id="agent-{{ agent_id }}">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <div>
-            <h5 class="card-title mb-0">Agent: {{ agent_id }}</h5>
-            <small class="text-muted">
-                <a href="{{ agent.debug_urls.info }}" target="_blank" class="text-decoration-none me-2">
-                    <i class="fas fa-bug"></i> Debug Info
-                </a>
-                <a href="{{ agent.debug_urls.validate }}" target="_blank" class="text-decoration-none">
-                    <i class="fas fa-check-circle"></i> Validate Paths
-                </a>
-            </small>
-        </div>
-        <button class="btn btn-danger btn-sm delete-agent-btn" data-agent-id="{{ agent_id }}">
-            Delete Agent
-        </button>
-    </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-6">
-                <h6>Task Details</h6>
-                <p>{{ agent.task }}</p>
-                
-                <h6>Status</h6>
-                <p class="badge {% if agent.status == 'in_progress' %}bg-primary{% elif agent.status == 'pending' %}bg-warning{% else %}bg-success{% endif %}">
-                    {{ agent.status }}
-                </p>
-
-                <h6>Debug Info</h6>
-                <div class="debug-info">
-                    <p class="mb-1"><span class="label">Output Length:</span> {{ agent.aider_output|length }}</p>
-                    <p class="mb-1"><span class="label">Last Updated:</span> {{ agent.last_updated }}</p>
-                    <p class="mb-1"><span class="label">Workspace:</span> {{ agent.workspace }}</p>
-                    <p class="mb-1"><span class="label">Repo Path:</span> {{ agent.repo_path or 'Not set' }}</p>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-robot me-2"></i>Agent: {{ agent_id }}
+                    </h5>
+                    <div class="debug-links">
+                        <a href="{{ agent.debug_urls.info }}" target="_blank">
+                            <i class="fas fa-bug"></i> Debug Info
+                        </a>
+                        <a href="{{ agent.debug_urls.validate }}" target="_blank">
+                            <i class="fas fa-check-circle"></i> Validate Paths
+                        </a>
+                    </div>
                 </div>
+                <button class="btn btn-danger btn-sm delete-agent-btn" data-agent-id="{{ agent_id }}">
+                    <i class="fas fa-trash-alt me-1"></i>Delete Agent
+                </button>
             </div>
-            <div class="col-md-6">
-                <h6>Workspace Files</h6>
-                <ul class="list-group">
-                    {% for file in agent.files[:5] %}
-                    <li class="list-group-item">{{ file }}</li>
-                    {% endfor %}
-                    {% if agent.files|length > 5 %}
-                    <li class="list-group-item">... and {{ agent.files|length - 5 }} more</li>
-                    {% endif %}
-                </ul>
-            </div>
-        </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-tasks me-2"></i>Task Details</h6>
+                        <p>{{ agent.task }}</p>
+                        
+                        <h6><i class="fas fa-info-circle me-2"></i>Status</h6>
+                        <p class="badge {% if agent.status == 'in_progress' %}bg-primary{% elif agent.status == 'pending' %}bg-warning{% else %}bg-success{% endif %}">
+                            <i class="fas {% if agent.status == 'in_progress' %}fa-spinner fa-spin{% elif agent.status == 'pending' %}fa-clock{% else %}fa-check{% endif %} me-1"></i>
+                            {{ agent.status or 'pending' }}
+                        </p>
 
-        <div class="progress-section">
-            <h6>Aider CLI Output</h6>
-            <div class="cli-output">
-                {% if agent.aider_output %}
-                    {{ agent.aider_output|safe }}
-                {% else %}
-                    <span class="text-muted">No output available yet...</span>
-                {% endif %}
-            </div>
-        </div>
+                        <h6><i class="fas fa-bug me-2"></i>Debug Info</h6>
+                        <div class="debug-info">
+                            <p class="mb-1"><span class="label">Output Length:</span> {{ agent.aider_output|length }}</p>
+                            <p class="mb-1"><span class="label">Last Updated:</span> {{ agent.last_updated or 'Never' }}</p>
+                            <p class="mb-1"><span class="label">Workspace:</span> {{ agent.workspace }}</p>
+                            <p class="mb-0"><span class="label">Repo Path:</span> {{ agent.repo_path or 'Not set' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-folder-open me-2"></i>Workspace Files</h6>
+                        <ul class="list-group">
+                            {% for file in agent.files[:5] %}
+                            <li class="list-group-item">
+                                <i class="fas fa-file-code me-2"></i>{{ file }}
+                            </li>
+                            {% endfor %}
+                            {% if agent.files|length > 5 %}
+                            <li class="list-group-item text-muted">
+                                <i class="fas fa-ellipsis-h me-2"></i>and {{ agent.files|length - 5 }} more
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
 
-        <div class="progress-section">
-            <h6>Last Critique</h6>
-            {% if agent.prompt_details and agent.prompt_details.last_critique %}
-            <div class="card">
-                <div class="card-body">
-                    <p>Files Created: {{ agent.prompt_details.last_critique.files_created }}</p>
-                    <p>Complexity: {{ agent.prompt_details.last_critique.complexity }}</p>
-                    <p>Potential Improvements: 
-                        {% if agent.prompt_details.last_critique.potential_improvements %}
-                            {{ agent.prompt_details.last_critique.potential_improvements|join(', ') }}
+                <div class="progress-section">
+                    <h6><i class="fas fa-terminal me-2"></i>Aider CLI Output</h6>
+                    <div class="cli-output">
+                        {% if agent.aider_output %}
+                            {{ agent.aider_output|safe }}
                         {% else %}
-                            None
+                            <span class="text-muted">No output available yet...</span>
                         {% endif %}
-                    </p>
+                    </div>
+                </div>
+
+                <div class="progress-section">
+                    <h6><i class="fas fa-clipboard-check me-2"></i>Last Critique</h6>
+                    {% if agent.prompt_details and agent.prompt_details.last_critique %}
+                    <div class="card">
+                        <div class="card-body">
+                            <p><i class="fas fa-file me-2"></i>Files Created: {{ agent.prompt_details.last_critique.files_created }}</p>
+                            <p><i class="fas fa-chart-line me-2"></i>Complexity: {{ agent.prompt_details.last_critique.complexity }}</p>
+                            <p><i class="fas fa-lightbulb me-2"></i>Potential Improvements: 
+                                {% if agent.prompt_details.last_critique.potential_improvements %}
+                                    {{ agent.prompt_details.last_critique.potential_improvements|join(', ') }}
+                                {% else %}
+                                    None
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-muted"><i class="fas fa-info-circle me-2"></i>No critique available yet</p>
+                    {% endif %}
                 </div>
             </div>
-            {% else %}
-            <p>No critique available yet</p>
-            {% endif %}
+            <div class="card-footer text-muted d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-calendar-alt me-1"></i>Created: {{ agent.created_at or 'Unknown' }}
+                </div>
+                <div>
+                    <i class="fas fa-clock me-1"></i>Last Updated: {{ agent.last_updated or 'Never' }}
+                </div>
+            </div>
         </div>
-    </div>
-    <div class="card-footer text-muted">
-        Created: {{ agent.created_at }} | Last Updated: {{ agent.last_updated }}
-    </div>
-</div>
         {% endfor %}
         </div>
 
-        <!-- Toast for notifications -->
+        <!-- Improved toast notifications -->
         <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
             <div id="deleteToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
                 <div class="toast-header">
-                    <strong class="me-auto">Agent Deletion</strong>
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong class="me-auto">Agent Status</strong>
+                    <small class="text-muted">just now</small>
                     <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
                 </div>
                 <div class="toast-body" id="toastMessage"></div>
@@ -195,6 +366,19 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Keep track of last output lengths to detect changes
+        const lastOutputLengths = {};
+
+        // Helper function to get output length from debug info
+        function getOutputLength(debugElement) {
+            const lengthElement = debugElement.querySelector('.label');
+            if (lengthElement && lengthElement.textContent.includes('Output Length')) {
+                const lengthText = lengthElement.parentElement.textContent;
+                return parseInt(lengthText.split(':')[1].trim());
+            }
+            return 0;
+        }
+
         // Countdown timer
         function updateCountdown() {
             const countdownEl = document.getElementById('countdown');
@@ -206,7 +390,7 @@
                 // Instead of full page reload, fetch updates via AJAX
                 fetchUpdates();
                 // Reset countdown
-                countdownEl.textContent = "30";
+                countdownEl.textContent = "5"; // Reduced to 5 seconds for more frequent updates
             }
         }
 
@@ -234,17 +418,37 @@
                         const currentOutput = agent.querySelector('.cli-output');
                         const newOutput = newAgentCard.querySelector('.cli-output');
                         
-                        if (currentOutput && newOutput && currentOutput.innerHTML !== newOutput.innerHTML) {
-                            currentOutput.innerHTML = newOutput.innerHTML;
-                            // Auto-scroll to bottom of output
-                            currentOutput.scrollTop = currentOutput.scrollHeight;
+                        if (currentOutput && newOutput) {
+                            const currentText = currentOutput.textContent || '';
+                            const newText = newOutput.textContent || '';
                             
-                            // Flash the output box to indicate new content
-                            currentOutput.style.transition = 'background-color 0.5s';
-                            currentOutput.style.backgroundColor = '#2e4052';
-                            setTimeout(() => {
-                                currentOutput.style.backgroundColor = '#1e1e1e';
-                            }, 500);
+                            // Initialize last output length if not exists
+                            if (!(agentId in lastOutputLengths)) {
+                                lastOutputLengths[agentId] = currentText.length;
+                            }
+                            
+                            // Check if output has changed
+                            if (newText.length > lastOutputLengths[agentId]) {
+                                console.log(`Agent ${agentId} output updated:`, {
+                                    previousLength: lastOutputLengths[agentId],
+                                    newLength: newText.length,
+                                    diff: newText.substring(lastOutputLengths[agentId])
+                                });
+                                
+                                // Update the output
+                                currentOutput.innerHTML = newOutput.innerHTML;
+                                lastOutputLengths[agentId] = newText.length;
+                                
+                                // Auto-scroll to bottom of output
+                                currentOutput.scrollTop = currentOutput.scrollHeight;
+                                
+                                // Flash the output box to indicate new content
+                                currentOutput.style.transition = 'background-color 0.5s';
+                                currentOutput.style.backgroundColor = '#2e4052';
+                                setTimeout(() => {
+                                    currentOutput.style.backgroundColor = '#1e1e1e';
+                                }, 500);
+                            }
                         }
                         
                         // Update status badge
@@ -259,14 +463,24 @@
                         const currentDebug = agent.querySelector('.debug-info');
                         const newDebug = newAgentCard.querySelector('.debug-info');
                         if (currentDebug && newDebug) {
-                            currentDebug.innerHTML = newDebug.innerHTML;
+                            const currentLength = getOutputLength(currentDebug);
+                            const newLength = getOutputLength(newDebug);
+                            
+                            if (currentLength !== newLength) {
+                                currentDebug.innerHTML = newDebug.innerHTML;
+                                console.log(`Agent ${agentId} debug info updated:`, {
+                                    previousLength: currentLength,
+                                    newLength: newLength
+                                });
+                            }
                         }
                         
                         // Update last critique if it exists
                         const currentCritique = agent.querySelector('.progress-section:last-child');
                         const newCritique = newAgentCard.querySelector('.progress-section:last-child');
-                        if (currentCritique && newCritique) {
+                        if (currentCritique && newCritique && currentCritique.innerHTML !== newCritique.innerHTML) {
                             currentCritique.innerHTML = newCritique.innerHTML;
+                            console.log(`Agent ${agentId} critique updated`);
                         }
                     }
                 });
@@ -275,22 +489,69 @@
             }
         }
 
-        // Auto-scroll CLI outputs to bottom on load
+        // Function to force an immediate update
+        function forceUpdate() {
+            fetchUpdates();
+        }
+
+        // Auto-scroll CLI outputs to bottom on load and set up periodic updates
         document.addEventListener('DOMContentLoaded', () => {
+            // Initial scroll to bottom
             const outputs = document.querySelectorAll('.cli-output');
             outputs.forEach(output => {
                 output.scrollTop = output.scrollHeight;
+                
+                // Store initial output lengths
+                const agentId = output.closest('.agent-card').id.replace('agent-', '');
+                lastOutputLengths[agentId] = output.textContent.length;
+                console.log(`Initialized agent ${agentId} output length:`, lastOutputLengths[agentId]);
             });
+
+            // Set up more frequent updates for CLI output
+            setInterval(forceUpdate, 2000); // Check for updates every 2 seconds
         });
 
-        // Toast initialization and delete agent functionality
-        const deleteToast = new bootstrap.Toast(document.getElementById('deleteToast'));
-        const toastMessage = document.getElementById('toastMessage');
+        // Hide loader when page is fully loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            const loader = document.querySelector('.page-loader');
+            if (loader) {
+                setTimeout(() => {
+                    loader.style.opacity = '0';
+                    loader.style.transition = 'opacity 0.5s ease-out';
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                    }, 500);
+                }, 500);
+            }
+        });
 
-        // Delete agent functionality
+        // Update toast show function
+        function showToast(message, type = 'success') {
+            const toastEl = document.getElementById('deleteToast');
+            const toastBody = document.getElementById('toastMessage');
+            
+            // Remove existing classes
+            toastBody.classList.remove('success', 'error');
+            // Add appropriate class
+            toastBody.classList.add(type);
+            
+            // Add icon based on type
+            const icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
+            toastBody.innerHTML = `
+                <i class="fas fa-${icon} me-2"></i>
+                ${message}
+            `;
+            
+            // Show toast
+            const toast = new bootstrap.Toast(toastEl);
+            toast.show();
+        }
+
+        // Update delete agent functionality to use new toast
         document.getElementById('agentList').addEventListener('click', async (e) => {
             if (e.target.classList.contains('delete-agent-btn')) {
                 const agentId = e.target.getAttribute('data-agent-id');
+                const agentCard = document.getElementById(`agent-${agentId}`);
                 
                 try {
                     const response = await fetch(`/delete_agent/${agentId}`, {
@@ -300,32 +561,113 @@
                     const result = await response.json();
                     
                     if (result.success) {
-                        // Remove agent card from DOM
-                        const agentCard = document.getElementById(`agent-${agentId}`);
                         if (agentCard) {
-                            agentCard.remove();
+                            // Add fade out animation
+                            agentCard.style.transition = 'all 0.5s ease-out';
+                            agentCard.style.opacity = '0';
+                            agentCard.style.transform = 'translateY(20px)';
+                            
+                            // Remove after animation
+                            setTimeout(() => {
+                                agentCard.remove();
+                                delete lastOutputLengths[agentId];
+                            }, 500);
                         }
                         
-                        // Show success toast
-                        toastMessage.textContent = `Agent ${agentId} deleted successfully`;
-                        toastMessage.classList.remove('text-danger');
-                        toastMessage.classList.add('text-success');
-                        deleteToast.show();
+                        showToast(`Agent ${agentId} deleted successfully`, 'success');
                     } else {
-                        // Show error toast
-                        toastMessage.textContent = result.error || `Failed to delete agent ${agentId}`;
-                        toastMessage.classList.remove('text-success');
-                        toastMessage.classList.add('text-danger');
-                        deleteToast.show();
+                        showToast(result.error || `Failed to delete agent ${agentId}`, 'error');
                     }
                 } catch (error) {
-                    // Show error toast for network or unexpected errors
-                    toastMessage.textContent = `Error deleting agent: ${error.message}`;
-                    toastMessage.classList.remove('text-success');
-                    toastMessage.classList.add('text-danger');
-                    deleteToast.show();
+                    showToast(`Error deleting agent: ${error.message}`, 'error');
                 }
             }
+        });
+    </script>
+    <!-- Help Modal -->
+    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="helpModalLabel">
+                        <i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="list-group">
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><kbd>R</kbd></span>
+                                <span>Force refresh all agents</span>
+                            </div>
+                        </div>
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><kbd>?</kbd></span>
+                                <span>Show this help dialog</span>
+                            </div>
+                        </div>
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><kbd>Esc</kbd></span>
+                                <span>Close dialogs</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Don't trigger shortcuts if user is typing in an input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            switch(e.key.toLowerCase()) {
+                case 'r':
+                    // Force refresh
+                    e.preventDefault();
+                    forceUpdate();
+                    showToast('Refreshing agents...', 'info');
+                    break;
+                case '?':
+                    // Show help modal
+                    e.preventDefault();
+                    const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+                    helpModal.show();
+                    break;
+                case 'escape':
+                    // Close all modals
+                    const modals = document.querySelectorAll('.modal');
+                    modals.forEach(modal => {
+                        const bsModal = bootstrap.Modal.getInstance(modal);
+                        if (bsModal) {
+                            bsModal.hide();
+                        }
+                    });
+                    break;
+            }
+        });
+
+        // Add help button to header
+        document.addEventListener('DOMContentLoaded', () => {
+            const header = document.querySelector('.container > .d-flex');
+            const helpButton = document.createElement('button');
+            helpButton.className = 'btn btn-outline-secondary ms-2';
+            helpButton.innerHTML = '<i class="fas fa-keyboard me-1"></i>Shortcuts';
+            helpButton.onclick = () => {
+                const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+                helpModal.show();
+            };
+            header.querySelector('div').appendChild(helpButton);
         });
     </script>
 </body>
