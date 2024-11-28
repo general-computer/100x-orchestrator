@@ -1,5 +1,5 @@
 import pytest
-from ..orchestrator import AiderSession, cloneRepository
+from orchestrator import AiderSession, cloneRepository
 
 def test_aider_session_initialization(temp_workspace):
     """Test AiderSession initialization."""

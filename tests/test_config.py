@@ -1,5 +1,5 @@
 import pytest
-from ..config import ConfigManager
+from config import ConfigManager
 
 def test_config_manager_initialization(temp_config_file):
     """Test ConfigManager initialization with a config file."""
