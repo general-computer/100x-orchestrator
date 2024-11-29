@@ -1,39 +1,47 @@
 # 100x-orchestrator
 
-A sophisticated orchestration system that manages multiple AI coding agents working on software development tasks. The system leverages Aider (an AI coding assistant) to handle coding tasks and provides a web interface for monitoring and managing these agents.
+A sophisticated orchestration system that manages multiple AI coding agents working on software development tasks. The system leverages Aider (an AI coding assistant) to handle coding tasks and provides a real-time web interface for monitoring and managing these agents.
 
 ## Features
 
-- **Multi-Agent Task Handling**: Deploy multiple AI agents to work on coding tasks simultaneously
-- **Git Integration**: Automatic repository cloning and branch management
-- **Real-Time Progress Monitoring**: Track agent progress and status through a web interface
+- **Multi-Agent Task Handling**: Deploy multiple AI agents to work on coding tasks simultaneously with isolated workspaces
+- **Git Integration**: Automatic repository cloning and branch management per agent
+- **Real-Time Progress Monitoring**: Track agent progress and status through WebSocket updates
 - **Workspace Isolation**: Each agent works in an isolated workspace to prevent conflicts
 - **Configuration Management**: Flexible configuration system for repository URLs and task management
-- **Web-Based Control Interface**: User-friendly web interface for agent creation and management
+- **Web-Based Control Interface**: User-friendly web interface with real-time updates and keyboard shortcuts
 - **Automated Code Critiquing**: Built-in system for evaluating agent progress and code quality
-- **Session Management**: Robust handling of agent sessions and outputs
+- **Session Management**: Robust handling of agent sessions with error recovery
+- **Health Monitoring**: Continuous monitoring of agent health with automatic error detection
+- **Debug Tools**: Comprehensive debugging endpoints for troubleshooting
 
 ## System Architecture
 
 ### 1. Orchestrator (`orchestrator.py`)
 - Core component managing AI coding agents
 - Handles workspace creation and git repository management
-- Monitors agent progress and provides critiques
-- Maintains agent sessions and outputs
+- Monitors agent progress with health checks
+- Maintains agent sessions and outputs via WebSocket
 - Integrates with Aider for code generation
+- Implements error recovery and retry mechanisms
+- Provides detailed agent diagnostics
 
 ### 2. Configuration Manager (`config.py`)
-- Manages system configuration
+- Manages system configuration and environment setup
 - Handles repository URLs and task tracking
 - Controls agent count per task
 - Persists configuration in JSON format
+- Normalizes file paths across operating systems
 
 ### 3. Web Interface (`app.py`)
-- Flask-based web application
-- Agent creation and management interface
-- Real-time status and progress display
+- Flask-based web application with WebSocket support
+- Real-time agent creation and management interface
+- Live status and progress display
 - Task assignment and monitoring
 - Agent deletion and cleanup functionality
+- Toast notifications for important events
+- Keyboard shortcuts for common operations
+- Debug endpoints for troubleshooting
 
 ## Installation
 
@@ -61,6 +69,7 @@ pip install -r requirements.txt
 {
   "repository_url": "",
   "tasks": [],
+  "agents": {},
   "current_task_index": 0,
   "default_agents_per_task": 1
 }
@@ -108,10 +117,14 @@ python app.py
 
 - Python
 - Flask
+- Flask-SocketIO
 - Aider
 - Git
 - JSON for configuration
 - Threading for concurrent operations
+- WebSocket for real-time updates
+- Bootstrap for UI
+- Font Awesome for icons
 
 ## Contributing
 

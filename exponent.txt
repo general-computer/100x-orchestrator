@@ -1,45 +1,56 @@
 100x-orchestrator: AI Agent Orchestration System
 
 Overview:
-A sophisticated orchestration system that manages multiple AI coding agents working on software development tasks. The system uses Aider (an AI coding assistant) to handle coding tasks and provides a web interface for monitoring and managing these agents.
+A sophisticated orchestration system that manages multiple AI coding agents working on software development tasks. The system uses Aider (an AI coding assistant) to handle coding tasks and provides a real-time web interface for monitoring and managing these agents.
 
 Key Components:
 
 1. Orchestrator (orchestrator.py)
-- Manages multiple AI coding agents
+- Manages multiple AI coding agents with real-time status tracking
 - Handles workspace creation and git repository cloning
-- Monitors agent progress and provides critiques
-- Maintains agent sessions and outputs
+- Monitors agent progress with health checks and error handling
+- Maintains agent sessions and outputs with WebSocket updates
 - Uses Aider for code generation and modifications
+- Implements sophisticated error recovery and retry mechanisms
+- Provides detailed agent diagnostics and critiques
 
 2. Configuration Manager (config.py)
-- Handles system configuration
-- Manages repository URLs
-- Tracks tasks and their status
+- Handles system configuration and environment setup
+- Manages repository URLs and task tracking
 - Controls agent count per task
 - Persists configuration in JSON format
+- Normalizes file paths across different operating systems
 
 3. Web Interface (app.py)
-- Flask-based web application
-- Provides agent creation and management
-- Displays agent status and progress
+- Flask-based web application with real-time updates via WebSocket
+- Provides comprehensive agent creation and management
+- Displays detailed agent status and progress in real-time
 - Allows task assignment and monitoring
 - Supports agent deletion and cleanup
+- Features keyboard shortcuts and toast notifications
+- Includes debug endpoints for troubleshooting
 
 Key Features:
-- Multi-agent task handling
-- Git integration
-- Real-time progress monitoring
-- Workspace isolation
-- Configuration management
-- Web-based control interface
-- Automated code critiquing
-- Session management
+- Multi-agent task handling with isolated workspaces
+- Git integration with automatic branch management
+- Real-time progress monitoring via WebSocket
+- Workspace isolation for concurrent agent operations
+- Configuration management with JSON persistence
+- Web-based control interface with real-time updates
+- Automated code critiquing and health monitoring
+- Session management with error recovery
+- Detailed diagnostic information and debugging tools
+- Toast notifications for important events
+- Keyboard shortcuts for common operations
 
 Technical Stack:
 - Python
 - Flask
+- Flask-SocketIO
 - Aider
 - Git
 - JSON for configuration
 - Threading for concurrent operations
+- WebSocket for real-time updates
+- Bootstrap for UI
+- Font Awesome for icons
