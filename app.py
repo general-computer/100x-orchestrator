@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
+from utils.env_utils import EnvManager
 from flask_socketio import SocketIO, emit
 from utils.installation_utils import AiderInstallationManager
 from orchestrator import (
