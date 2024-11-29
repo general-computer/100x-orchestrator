@@ -8,3 +8,5 @@ requests>=2.31.0    # HTTP requests
 pathlib>=1.0.1      # Path manipulation
 pytest>=7.4.3       # Testing framework
 pytest-cov>=4.1.0   # Test coverage
+pytest-mock>=3.12.0  # Mocking support
+pytest-asyncio>=0.23.2  # Async testing
