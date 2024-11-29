@@ -16,18 +16,22 @@ import io
 import errno
 import logging
 import logging.handlers
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import emit
 from utils.installation_utils import AiderInstallationManager
+from utils.env_utils import EnvManager
+
+app = Flask(__name__)
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.handlers.RotatingFileHandler(
-            'orchestrator_debug.log',
-            maxBytes=10485760,
-            backupCount=5
+            'orchestrator.log',
+            maxBytes=5242880,  # 5MB
+            backupCount=3
         ),
         logging.StreamHandler()
     ]
@@ -279,7 +283,6 @@ class AiderSession:
                 else:
                     self.consecutive_empty_reads += 1
                 
-                logger.debug(f"[Session {self.session_id}] {pipe_name} received: {line.strip()}")
                 self.output_queue.put(line)
                 pipe.flush()
                 
@@ -396,11 +399,9 @@ class AiderSession:
                             'timestamp': datetime.datetime.now().isoformat()
                         }
                         output_queue.put(update)
-                        logger.debug(f"[Session {self.session_id}] Queued WebSocket update for agent {self.agent_id}")
                     
                     if buffer_update_count % 5 == 0 or any(keyword in line for keyword in ['Error:', 'Warning:', 'Success:']):
                         self._update_output_in_tasks()
-                        logger.debug(f"[Session {self.session_id}] Updated tasks.json after {buffer_update_count} updates")
                 
             except Exception as e:
                 logger.error(f"[Session {self.session_id}] Error processing output: {e}", exc_info=True)
@@ -485,7 +486,6 @@ def load_tasks():
                 if 'repo_path' in agent_data:
                     agent_data['repo_path'] = normalize_path(agent_data['repo_path'])
             
-            logger.debug(f"Loaded tasks data: {json.dumps(data, indent=2)}")
             return data
     except FileNotFoundError:
         logger.info("config.json not found, creating new data structure")
@@ -522,10 +522,6 @@ def save_tasks(tasks_data):
                 'last_critique': agent_data.get('last_critique')
             }
             
-            logger.debug(f"Saving agent {agent_id} with normalized paths:")
-            logger.debug(f"  workspace: {data_to_save['agents'][agent_id]['workspace']}")
-            logger.debug(f"  repo_path: {data_to_save['agents'][agent_id]['repo_path']}")
-        
         with open(CONFIG_FILE, 'w') as f:
             json.dump(data_to_save, f, indent=4)
         logger.info("Successfully saved tasks data")
@@ -572,9 +568,6 @@ def delete_agent(agent_id):
         return False
 
 def initialiseCodingAgent(repository_url: str = None, task_description: str = None, num_agents: int = None):
-    logger.info("Starting agent initialization")
-    logger.debug(f"Parameters: repo_url={repository_url}, task={task_description}, num_agents={num_agents}")
-    
     try:
         # First check if aider is installed
         if not check_aider_installation():
@@ -779,6 +772,7 @@ def critique_agent_progress(agent_id):
             'status_reason': f'Error during critique: {str(e)}'
         })
         return None
+
 
 def main_loop():
     logger.info("Starting main orchestration loop")

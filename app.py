@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
+from utils.env_utils import EnvManager
 from flask_socketio import SocketIO, emit
 from utils.installation_utils import AiderInstallationManager
 from orchestrator import (
@@ -64,6 +65,39 @@ broadcast_thread.start()
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/settings')
+def settings():
+    """Render the settings page"""
+    api_keys = EnvManager.get_api_keys()
+    return render_template('settings.html', 
+                         openai_key=api_keys['openai_api_key'],
+                         anthropic_key=api_keys['anthropic_api_key'],
+                         openrouter_key=api_keys['openrouter_api_key'])
+
+@app.route('/save_settings', methods=['POST'])
+def save_settings():
+    """Save API keys to .env file"""
+    try:
+        data = request.get_json()
+        success = EnvManager.save_api_keys(data)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Settings saved successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to save settings'
+            })
+    except Exception as e:
+        logger.error(f"Error saving settings: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        })
 
 @app.route('/tasks/tasks.json')
 def serve_tasks_json():
