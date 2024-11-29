@@ -65,6 +65,10 @@ broadcast_thread.start()
 def index():
     return render_template('index.html')
 
+@app.route('/settings')
+def settings():
+    return render_template('settings.html')
+
 @app.route('/tasks/tasks.json')
 def serve_tasks_json():
     return send_from_directory('tasks', 'tasks.json')
