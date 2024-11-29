@@ -1,674 +1,646 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- Meta Tags -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Progress Dashboard</title>
+    
+    <!-- CSS Libraries -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .agent-card { margin-bottom: 1rem; }
-        .progress-section { margin-top: 1rem; }
-        .timer { 
-            font-size: 1.2rem; 
-            font-weight: bold; 
-            color: #007bff; 
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-        .delete-agent-btn {
-            margin-left: 10px;
-        }
-        .cli-output {
-            background-color: #1e1e1e;
-            color: #ffffff;
-            padding: 1rem;
-            border-radius: 5px;
-            font-family: 'Courier New', Courier, monospace;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 400px;
-            overflow-y: auto;
-            font-size: 0.9rem;
-            line-height: 1.4;
-            tab-size: 4;
-            position: relative;
-            border: 1px solid #333;
-        }
-        .cli-output:empty::before {
-            content: 'No output available yet...';
-            color: #666;
-            font-style: italic;
-        }
-        .cli-output.updating {
-            border-color: #51cf66;
-        }
-        .cli-output.updating::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #51cf66;
-            margin: 8px;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.2); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-        .debug-info {
-            background-color: #f8f9fa;
-            padding: 0.8rem;
-            border-radius: 4px;
-            margin-top: 0.5rem;
-            font-size: 0.85rem;
-            border: 1px solid #dee2e6;
-        }
-        .debug-info .label {
-            font-weight: bold;
-            color: #495057;
-            min-width: 100px;
-            display: inline-block;
-        }
-        /* Add some basic syntax highlighting */
-        .cli-output .error { color: #ff6b6b; }
-        .cli-output .success { color: #51cf66; }
-        .cli-output .info { color: #339af0; }
-        .cli-output .warning { color: #ffd43b; }
-        
-        /* Make the refresh countdown more visible */
-        .timer {
-            background-color: #f8f9fa;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            display: inline-flex;
-            align-items: center;
-            border: 1px solid #dee2e6;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        /* Improve scrollbar appearance */
-        .cli-output::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        .cli-output::-webkit-scrollbar-track {
-            background: #2e2e2e;
-            border-radius: 4px;
-        }
-        .cli-output::-webkit-scrollbar-thumb {
-            background: #666;
-            border-radius: 4px;
-        }
-        .cli-output::-webkit-scrollbar-thumb:hover {
-            background: #888;
-        }
 
-        /* Add update indicator */
-        .update-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-left: 8px;
-            background-color: #51cf66;
-            animation: pulse 1s infinite;
-        }
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
 
-        /* Style the debug links */
-        .debug-links {
-            font-size: 0.85rem;
-            display: flex;
-            gap: 1rem;
-            margin-top: 0.25rem;
-        }
-        .debug-links a {
-            color: #6c757d;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-        }
-        .debug-links a:hover {
-            color: #495057;
-        }
-        .debug-links i {
-            font-size: 0.9rem;
-        }
-
-        /* Add some hover effects */
-        .cli-output:hover {
-            border-color: #495057;
-        }
-        .debug-info:hover {
-            border-color: #adb5bd;
-        }
-
-        /* Loading animation */
-        .page-loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.9);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-        .loader-content {
-            text-align: center;
-        }
-        .loader-spinner {
-            font-size: 3rem;
-            color: #007bff;
-            margin-bottom: 1rem;
-        }
-        
-        /* Improved toast styling */
-        .toast {
-            background-color: #fff;
-            border: none;
-            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-        }
-        .toast-header {
-            background-color: transparent;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-        }
-        .toast-body {
-            padding: 1rem;
-        }
-        .toast-body.success {
-            color: #198754;
-            background-color: #d1e7dd;
-        }
-        .toast-body.error {
-            color: #dc3545;
-            background-color: #f8d7da;
-        }
-
-        /* Fade in animation for agent cards */
-        .agent-card {
-            animation: fadeIn 0.5s ease-in-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Improved update indicator */
-        .update-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 1rem;
-            background-color: #198754;
-            color: white;
-            font-size: 0.875rem;
-        }
-        .update-indicator i {
-            font-size: 0.75rem;
-        }
-    </style>
+    <!-- External Stylesheet -->
+    <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
 </head>
 <body>
-    <!-- Page loader -->
-    <div class="page-loader">
-        <div class="loader-content">
-            <div class="loader-spinner">
-                <i class="fas fa-circle-notch fa-spin"></i>
-            </div>
-            <h4>Loading Agents...</h4>
+
+    <!-- Connection Status -->
+    <div class="connection-status">
+        <i class="fas fa-circle-notch fa-spin me-2"></i>
+        <span class="status-text">Connecting...</span>
+    </div>
+
+    <!-- Page Loader -->
+    <div class="page-loader" id="pageLoader">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-3x fa-spin"></i>
         </div>
     </div>
 
+    <!-- Main Container -->
     <div class="container mt-5">
+        <!-- Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1><i class="fas fa-robot me-2"></i>Agent Progress Dashboard</h1>
-            <div>
+            <div class="d-flex gap-2">
+                <button id="helpBtn" class="btn btn-outline-secondary">
+                    <i class="fas fa-keyboard me-1"></i>Shortcuts
+                </button>
                 <a href="/" class="btn btn-secondary">
                     <i class="fas fa-arrow-left me-1"></i>Back to Agent Creation
                 </a>
             </div>
         </div>
-        
-        <div class="timer text-center mb-4">
-            <i class="fas fa-sync-alt me-2"></i>
-            Next Progress Check: <span id="countdown" class="ms-1">{{ time_until_next_check }}</span> seconds
-            <span id="updateIndicator" class="update-indicator ms-2" style="display: none;" title="Updating...">
-                <i class="fas fa-circle-notch fa-spin"></i>
-            </span>
-        </div>
 
+        <!-- Agent List -->
         <div id="agentList">
-        {% for agent_id, agent in agents.items() %}
-        <div class="card agent-card" id="agent-{{ agent_id }}">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <div>
-                    <h5 class="card-title mb-0">
-                        <i class="fas fa-robot me-2"></i>Agent: {{ agent_id }}
-                    </h5>
-                    <div class="debug-links">
-                        <a href="{{ agent.debug_urls.info }}" target="_blank">
-                            <i class="fas fa-bug"></i> Debug Info
-                        </a>
-                        <a href="{{ agent.debug_urls.validate }}" target="_blank">
-                            <i class="fas fa-check-circle"></i> Validate Paths
-                        </a>
-                    </div>
-                </div>
-                <button class="btn btn-danger btn-sm delete-agent-btn" data-agent-id="{{ agent_id }}">
-                    <i class="fas fa-trash-alt me-1"></i>Delete Agent
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-tasks me-2"></i>Task Details</h6>
-                        <p>{{ agent.task }}</p>
-                        
-                        <h6><i class="fas fa-info-circle me-2"></i>Status</h6>
-                        <p class="badge {% if agent.status == 'in_progress' %}bg-primary{% elif agent.status == 'pending' %}bg-warning{% else %}bg-success{% endif %}">
-                            <i class="fas {% if agent.status == 'in_progress' %}fa-spinner fa-spin{% elif agent.status == 'pending' %}fa-clock{% else %}fa-check{% endif %} me-1"></i>
-                            {{ agent.status or 'pending' }}
-                        </p>
-
-                        <h6><i class="fas fa-bug me-2"></i>Debug Info</h6>
-                        <div class="debug-info">
-                            <p class="mb-1"><span class="label">Output Length:</span> {{ agent.aider_output|length }}</p>
-                            <p class="mb-1"><span class="label">Last Updated:</span> {{ agent.last_updated or 'Never' }}</p>
-                            <p class="mb-1"><span class="label">Workspace:</span> {{ agent.workspace }}</p>
-                            <p class="mb-0"><span class="label">Repo Path:</span> {{ agent.repo_path or 'Not set' }}</p>
+            {% for agent_id, agent in agents.items() %}
+            <div class="card agent-card {% if agent.status == 'error' %}error{% elif agent.status == 'stalled' %}stalled{% elif agent.status == 'completed' %}completed{% endif %}" 
+                 id="agent-{{ agent_id }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-robot me-2"></i>Agent: {{ agent_id }}
+                            {% if agent.status == 'error' or agent.status == 'stalled' %}
+                            <span class="badge bg-danger ms-2">Attention Required</span>
+                            {% endif %}
+                        </h5>
+                        <div class="debug-links small-text">
+                            <a href="{{ agent.debug_urls.info }}" target="_blank">
+                                <i class="fas fa-bug"></i> Debug Info
+                            </a>
+                            <a href="{{ agent.debug_urls.validate }}" target="_blank">
+                                <i class="fas fa-check-circle"></i> Validate Paths
+                            </a>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-folder-open me-2"></i>Workspace Files</h6>
-                        <ul class="list-group">
-                            {% for file in agent.files[:5] %}
-                            <li class="list-group-item">
-                                <i class="fas fa-file-code me-2"></i>{{ file }}
-                            </li>
-                            {% endfor %}
-                            {% if agent.files|length > 5 %}
-                            <li class="list-group-item text-muted">
-                                <i class="fas fa-ellipsis-h me-2"></i>and {{ agent.files|length - 5 }} more
-                            </li>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm retry-agent-btn" 
+                                onclick="retryAgent('{{ agent_id }}')"
+                                {% if agent.status not in ['error', 'stalled'] %}style="display: none;"{% endif %}>
+                            <i class="fas fa-redo me-1"></i>Retry
+                        </button>
+                        <button class="btn btn-danger btn-sm delete-agent-btn" data-agent-id="{{ agent_id }}">
+                            <i class="fas fa-trash-alt me-1"></i>Delete
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="card-body">
+                    <div class="status-indicator {{ agent.status or 'unknown' }}">
+                        <i class="fas {% if agent.status == 'in_progress' %}fa-spinner fa-spin
+                                    {% elif agent.status == 'pending' %}fa-hourglass-start
+                                    {% elif agent.status == 'error' %}fa-exclamation-triangle
+                                    {% elif agent.status == 'stalled' %}fa-pause-circle
+                                    {% elif agent.status == 'completed' %}fa-check-circle
+                                    {% else %}fa-question-circle{% endif %} me-2"></i>
+                        {{ (agent.status or 'Unknown')|title }}
+                    </div>
+                        {% if agent.status_reason %}
+                        <div class="status-details">
+                            {{ agent.status_reason }}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    {% if agent.error_details %}
+                    <div class="error-details">
+                        <h6><i class="fas fa-exclamation-circle me-2"></i>Error Information</h6>
+                        <ul>
+                            <li>Errors encountered: {{ agent.error_details.error_count }}</li>
+                            <li>Last output received: {{ agent.error_details.last_output_time }}</li>
+                            {% if agent.error_details.consecutive_empty_reads > 0 %}
+                            <li>Consecutive empty reads: {{ agent.error_details.consecutive_empty_reads }}</li>
                             {% endif %}
                         </ul>
                     </div>
-                </div>
+                    {% endif %}
 
-                <div class="progress-section">
-                    <h6><i class="fas fa-terminal me-2"></i>Aider CLI Output</h6>
-                    <div class="cli-output">
-                        {% if agent.aider_output %}
-                            {{ agent.aider_output|safe }}
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-tasks me-2"></i>Task Details</h6>
+                            <p class="task-details">{{ agent.task }}</p>
+
+                            <div class="diagnostic-info mt-3">
+                                <h6><i class="fas fa-stethoscope me-2"></i>Agent Diagnostics</h6>
+                                <div class="health-indicator 
+                                    {% if agent.status == 'error' %}critical
+                                    {% elif agent.status == 'stalled' %}warning
+                                    {% else %}healthy{% endif %}">
+                                    <i class="fas {% if agent.status == 'error' %}fa-exclamation-circle
+                                               {% elif agent.status == 'stalled' %}fa-exclamation-triangle
+                                               {% else %}fa-check-circle{% endif %}"></i>
+                                    {{ 'Critical' if agent.status == 'error' else 'Warning' if agent.status == 'stalled' else 'Healthy' }}
+                                </div>
+                                <div class="row">
+                                    <div class="col-5"><span class="label">Output Size:</span></div>
+                                    <div class="col-7 output-size">{{ agent.aider_output|length }} bytes</div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-5"><span class="label">Last Update:</span></div>
+                                    <div class="col-7 last-update">{{ agent.last_updated or 'Never' }}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-folder-open me-2"></i>Modified Files</h6>
+                            <div class="files-list">
+                                <ul class="list-group">
+                                    {% if agent.files %}
+                                        {% for file in agent.files[:5] %}
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><i class="fas fa-file-code me-2"></i>{{ file }}</span>
+                                        </li>
+                                        {% endfor %}
+                                        {% if agent.files|length > 5 %}
+                                        <li class="list-group-item text-muted">
+                                            <i class="fas fa-ellipsis-h me-2"></i>and {{ agent.files|length - 5 }} more
+                                        </li>
+                                        {% endif %}
+                                    {% else %}
+                                        <li class="list-group-item text-muted">
+                                            <i class="fas fa-info-circle me-2"></i>No files modified yet
+                                        </li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="progress-section mt-4">
+                        <h6><i class="fas fa-terminal me-2"></i>Agent Output</h6>
+                        <div class="cli-output {% if agent.status == 'error' %}error{% elif agent.status == 'stalled' %}stalled{% endif %}" 
+                             data-agent-id="{{ agent_id }}">
+                            {% if agent.aider_output %}
+                                {{ agent.aider_output|safe }}
+                            {% else %}
+                                <!-- Loading Placeholder -->
+                                <div class="skeleton" style="height: 150px;"></div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="progress-section mt-4">
+                        <h6><i class="fas fa-clipboard-check me-2"></i>Progress Analysis</h6>
+                        {% if agent.last_critique %}
+                        <div class="card progress-analysis">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Files Created</h6>
+                                                <p class="card-text fs-4 files-created">{{ agent.last_critique.files_created }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Complexity</h6>
+                                                <p class="card-text fs-4 complexity">{{ agent.last_critique.complexity|title }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card h-100">
+                                            <div class="card-body text-center">
+                                                <h6 class="card-subtitle mb-2 text-muted">Status</h6>
+                                                <p class="card-text fs-4 status">{{ agent.status|title }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {% if agent.last_critique.potential_improvements %}
+                                <div class="mt-3">
+                                    <h6 class="text-muted">Suggested Improvements</h6>
+                                    <ul class="list-group suggested-improvements">
+                                        {% for improvement in agent.last_critique.potential_improvements %}
+                                        <li class="list-group-item">
+                                            <i class="fas fa-lightbulb me-2 text-warning"></i>
+                                            {{ improvement }}
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
                         {% else %}
-                            <span class="text-muted">No output available yet...</span>
+                        <p class="text-muted">
+                            <i class="fas fa-info-circle me-2"></i>No analysis available yet
+                        </p>
                         {% endif %}
                     </div>
                 </div>
 
-                <div class="progress-section">
-                    <h6><i class="fas fa-clipboard-check me-2"></i>Last Critique</h6>
-                    {% if agent.prompt_details and agent.prompt_details.last_critique %}
-                    <div class="card">
-                        <div class="card-body">
-                            <p><i class="fas fa-file me-2"></i>Files Created: {{ agent.prompt_details.last_critique.files_created }}</p>
-                            <p><i class="fas fa-chart-line me-2"></i>Complexity: {{ agent.prompt_details.last_critique.complexity }}</p>
-                            <p><i class="fas fa-lightbulb me-2"></i>Potential Improvements: 
-                                {% if agent.prompt_details.last_critique.potential_improvements %}
-                                    {{ agent.prompt_details.last_critique.potential_improvements|join(', ') }}
-                                {% else %}
-                                    None
-                                {% endif %}
-                            </p>
-                        </div>
+                <div class="card-footer text-muted d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="fas fa-calendar-alt me-1"></i>Created: {{ agent.created_at or 'Unknown' }}
                     </div>
-                    {% else %}
-                    <p class="text-muted"><i class="fas fa-info-circle me-2"></i>No critique available yet</p>
-                    {% endif %}
+                    <div>
+                        <i class="fas fa-clock me-1"></i>Last Updated: <span class="last-updated">{{ agent.last_updated or 'Never' }}</span>
+                    </div>
                 </div>
             </div>
-            <div class="card-footer text-muted d-flex justify-content-between align-items-center">
-                <div>
-                    <i class="fas fa-calendar-alt me-1"></i>Created: {{ agent.created_at or 'Unknown' }}
-                </div>
-                <div>
-                    <i class="fas fa-clock me-1"></i>Last Updated: {{ agent.last_updated or 'Never' }}
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-        </div>
-
-        <!-- Improved toast notifications -->
-        <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
-            <div id="deleteToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="toast-header">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <strong class="me-auto">Agent Status</strong>
-                    <small class="text-muted">just now</small>
-                    <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-                <div class="toast-body" id="toastMessage"></div>
-            </div>
+            {% endfor %}
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Keep track of last output lengths to detect changes
-        const lastOutputLengths = {};
+    <!-- Toast Notifications -->
+    <div class="toast-container">
+        <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
 
-        // Helper function to get output length from debug info
-        function getOutputLength(debugElement) {
-            const lengthElement = debugElement.querySelector('.label');
-            if (lengthElement && lengthElement.textContent.includes('Output Length')) {
-                const lengthText = lengthElement.parentElement.textContent;
-                return parseInt(lengthText.split(':')[1].trim());
-            }
-            return 0;
-        }
-
-        // Countdown timer
-        function updateCountdown() {
-            const countdownEl = document.getElementById('countdown');
-            let timeLeft = parseInt(countdownEl.textContent);
-            
-            if (timeLeft > 0) {
-                countdownEl.textContent = timeLeft - 1;
-            } else {
-                // Instead of full page reload, fetch updates via AJAX
-                fetchUpdates();
-                // Reset countdown
-                countdownEl.textContent = "5"; // Reduced to 5 seconds for more frequent updates
-            }
-        }
-
-        // Update countdown every second
-        const countdownInterval = setInterval(updateCountdown, 1000);
-
-        // Function to fetch updates via AJAX
-        async function fetchUpdates() {
-            try {
-                const response = await fetch('/agents');
-                const text = await response.text();
-                
-                // Create a temporary div to parse the HTML
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = text;
-                
-                // Update each agent's output
-                const agents = document.querySelectorAll('.agent-card');
-                agents.forEach(agent => {
-                    const agentId = agent.id.replace('agent-', '');
-                    const newAgentCard = tempDiv.querySelector(`#agent-${agentId}`);
-                    
-                    if (newAgentCard) {
-                        // Update CLI output if it has changed
-                        const currentOutput = agent.querySelector('.cli-output');
-                        const newOutput = newAgentCard.querySelector('.cli-output');
-                        
-                        if (currentOutput && newOutput) {
-                            const currentText = currentOutput.textContent || '';
-                            const newText = newOutput.textContent || '';
-                            
-                            // Initialize last output length if not exists
-                            if (!(agentId in lastOutputLengths)) {
-                                lastOutputLengths[agentId] = currentText.length;
-                            }
-                            
-                            // Check if output has changed
-                            if (newText.length > lastOutputLengths[agentId]) {
-                                console.log(`Agent ${agentId} output updated:`, {
-                                    previousLength: lastOutputLengths[agentId],
-                                    newLength: newText.length,
-                                    diff: newText.substring(lastOutputLengths[agentId])
-                                });
-                                
-                                // Update the output
-                                currentOutput.innerHTML = newOutput.innerHTML;
-                                lastOutputLengths[agentId] = newText.length;
-                                
-                                // Auto-scroll to bottom of output
-                                currentOutput.scrollTop = currentOutput.scrollHeight;
-                                
-                                // Flash the output box to indicate new content
-                                currentOutput.style.transition = 'background-color 0.5s';
-                                currentOutput.style.backgroundColor = '#2e4052';
-                                setTimeout(() => {
-                                    currentOutput.style.backgroundColor = '#1e1e1e';
-                                }, 500);
-                            }
-                        }
-                        
-                        // Update status badge
-                        const currentStatus = agent.querySelector('.badge');
-                        const newStatus = newAgentCard.querySelector('.badge');
-                        if (currentStatus && newStatus) {
-                            currentStatus.className = newStatus.className;
-                            currentStatus.textContent = newStatus.textContent;
-                        }
-                        
-                        // Update debug info
-                        const currentDebug = agent.querySelector('.debug-info');
-                        const newDebug = newAgentCard.querySelector('.debug-info');
-                        if (currentDebug && newDebug) {
-                            const currentLength = getOutputLength(currentDebug);
-                            const newLength = getOutputLength(newDebug);
-                            
-                            if (currentLength !== newLength) {
-                                currentDebug.innerHTML = newDebug.innerHTML;
-                                console.log(`Agent ${agentId} debug info updated:`, {
-                                    previousLength: currentLength,
-                                    newLength: newLength
-                                });
-                            }
-                        }
-                        
-                        // Update last critique if it exists
-                        const currentCritique = agent.querySelector('.progress-section:last-child');
-                        const newCritique = newAgentCard.querySelector('.progress-section:last-child');
-                        if (currentCritique && newCritique && currentCritique.innerHTML !== newCritique.innerHTML) {
-                            currentCritique.innerHTML = newCritique.innerHTML;
-                            console.log(`Agent ${agentId} critique updated`);
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Error fetching updates:', error);
-            }
-        }
-
-        // Function to force an immediate update
-        function forceUpdate() {
-            fetchUpdates();
-        }
-
-        // Auto-scroll CLI outputs to bottom on load and set up periodic updates
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initial scroll to bottom
-            const outputs = document.querySelectorAll('.cli-output');
-            outputs.forEach(output => {
-                output.scrollTop = output.scrollHeight;
-                
-                // Store initial output lengths
-                const agentId = output.closest('.agent-card').id.replace('agent-', '');
-                lastOutputLengths[agentId] = output.textContent.length;
-                console.log(`Initialized agent ${agentId} output length:`, lastOutputLengths[agentId]);
-            });
-
-            // Set up more frequent updates for CLI output
-            setInterval(forceUpdate, 2000); // Check for updates every 2 seconds
-        });
-
-        // Hide loader when page is fully loaded
-        document.addEventListener('DOMContentLoaded', () => {
-            const loader = document.querySelector('.page-loader');
-            if (loader) {
-                setTimeout(() => {
-                    loader.style.opacity = '0';
-                    loader.style.transition = 'opacity 0.5s ease-out';
-                    setTimeout(() => {
-                        loader.style.display = 'none';
-                    }, 500);
-                }, 500);
-            }
-        });
-
-        // Update toast show function
-        function showToast(message, type = 'success') {
-            const toastEl = document.getElementById('deleteToast');
-            const toastBody = document.getElementById('toastMessage');
-            
-            // Remove existing classes
-            toastBody.classList.remove('success', 'error');
-            // Add appropriate class
-            toastBody.classList.add(type);
-            
-            // Add icon based on type
-            const icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
-            toastBody.innerHTML = `
-                <i class="fas fa-${icon} me-2"></i>
-                ${message}
-            `;
-            
-            // Show toast
-            const toast = new bootstrap.Toast(toastEl);
-            toast.show();
-        }
-
-        // Update delete agent functionality to use new toast
-        document.getElementById('agentList').addEventListener('click', async (e) => {
-            if (e.target.classList.contains('delete-agent-btn')) {
-                const agentId = e.target.getAttribute('data-agent-id');
-                const agentCard = document.getElementById(`agent-${agentId}`);
-                
-                try {
-                    const response = await fetch(`/delete_agent/${agentId}`, {
-                        method: 'DELETE'
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        if (agentCard) {
-                            // Add fade out animation
-                            agentCard.style.transition = 'all 0.5s ease-out';
-                            agentCard.style.opacity = '0';
-                            agentCard.style.transform = 'translateY(20px)';
-                            
-                            // Remove after animation
-                            setTimeout(() => {
-                                agentCard.remove();
-                                delete lastOutputLengths[agentId];
-                            }, 500);
-                        }
-                        
-                        showToast(`Agent ${agentId} deleted successfully`, 'success');
-                    } else {
-                        showToast(result.error || `Failed to delete agent ${agentId}`, 'error');
-                    }
-                } catch (error) {
-                    showToast(`Error deleting agent: ${error.message}`, 'error');
-                }
-            }
-        });
-    </script>
     <!-- Help Modal -->
     <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="helpModalLabel">
-                        <i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts
-                    </h5>
+                    <h5><i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="list-group">
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span><kbd>R</kbd></span>
-                                <span>Force refresh all agents</span>
-                            </div>
-                        </div>
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span><kbd>?</kbd></span>
-                                <span>Show this help dialog</span>
-                            </div>
-                        </div>
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span><kbd>Esc</kbd></span>
-                                <span>Close dialogs</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item">
+                            <kbd>R</kbd> - Refresh all agents
+                        </li>
+                        <li class="list-group-item">
+                            <kbd>?</kbd> - Show help
+                        </li>
+                        <li class="list-group-item">
+                            <kbd>Esc</kbd> - Close modals
+                        </li>
+                    </ul>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Bootstrap JS and Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom Script -->
     <script>
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            // Don't trigger shortcuts if user is typing in an input
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-                return;
+            const socket = io('/agents');
+            const connectionStatus = document.querySelector('.connection-status');
+            
+            // Show Page Loader
+            const pageLoader = document.getElementById('pageLoader');
+            if (pageLoader) {
+                pageLoader.style.display = 'flex';
             }
-
-            switch(e.key.toLowerCase()) {
-                case 'r':
-                    // Force refresh
+            
+            socket.on('connect', () => {
+                if (connectionStatus) {
+                    connectionStatus.classList.add('connected');
+                    connectionStatus.classList.remove('disconnected');
+                    connectionStatus.innerHTML = '<i class="fas fa-check-circle me-2"></i>Connected';
+                }
+                showToast('Connected to server', 'success');
+                if (pageLoader) {
+                    pageLoader.style.display = 'none';
+                }
+            });
+            
+            socket.on('disconnect', () => {
+                if (connectionStatus) {
+                    connectionStatus.classList.add('disconnected');
+                    connectionStatus.classList.remove('connected');
+                    connectionStatus.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>Disconnected';
+                }
+                showToast('Disconnected from server', 'error');
+            });
+            
+            socket.on('output_update', (update) => {
+                if (document.readyState === 'complete') {
+                    updateAgentCard(update);
+                } else {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        updateAgentCard(update);
+                    });
+                }
+            });
+            
+            function updateAgentCard(update) {
+                console.log('Update received:', update);
+            
+                const agentCard = document.getElementById(`agent-${update.agent_id}`);
+                if (!agentCard) {
+                    console.warn(`Agent card with ID agent-${update.agent_id} not found.`);
+                    return;
+                }
+            
+                // Provide a default status if null or undefined
+                const status = update.status || 'unknown';
+            
+                // Update the agent card's class list
+                agentCard.classList.remove('error', 'stalled', 'completed');
+            
+                if (status === 'error') {
+                    agentCard.classList.add('error');
+                } else if (status === 'stalled') {
+                    agentCard.classList.add('stalled');
+                } else if (status === 'completed') {
+                    agentCard.classList.add('completed');
+                }
+            
+                // Update the card title and badge
+                const cardTitle = agentCard.querySelector('.card-title');
+            
+                if (cardTitle) {
+                    let titleHTML = `<i class="fas fa-robot me-2"></i>Agent: ${update.agent_id}`;
+                    if (status === 'error' || status === 'stalled') {
+                        titleHTML += `<span class="badge bg-danger ms-2">Attention Required</span>`;
+                    }
+                    cardTitle.innerHTML = titleHTML;
+                }
+            
+                // Update Task Details
+                const taskDetails = agentCard.querySelector('.task-details');
+                if (taskDetails) {
+                    taskDetails.textContent = update.task || 'No task details available';
+                }
+            
+                // Update Status Indicator
+                const statusIndicator = agentCard.querySelector('.status-indicator');
+                if (statusIndicator) {
+                    const statusClass = status.toLowerCase();
+                    const statusText = capitalizeFirstLetter(statusClass);
+            
+                    statusIndicator.className = `status-indicator ${statusClass}`;
+                    statusIndicator.innerHTML = `
+                        <i class="fas ${getStatusIcon(status)} me-2"></i>
+                        ${statusText}
+                    `;
+                }
+            
+                // Update Error Details
+                const errorDetails = agentCard.querySelector('.error-details');
+                if (errorDetails) {
+                    if (update.error_details) {
+                        errorDetails.style.display = 'block';
+            
+                        const errorCount = errorDetails.querySelector('.error-count');
+                        if (errorCount) {
+                            errorCount.textContent = update.error_details.error_count || 'N/A';
+                        }
+            
+                        const lastOutputTime = errorDetails.querySelector('.last-output-time');
+                        if (lastOutputTime) {
+                            lastOutputTime.textContent = update.error_details.last_output_time || 'N/A';
+                        }
+            
+                        const consecutiveEmptyReads = errorDetails.querySelector('.consecutive-empty-reads');
+                        if (consecutiveEmptyReads) {
+                            consecutiveEmptyReads.textContent = update.error_details.consecutive_empty_reads || 'N/A';
+                        }
+                    } else {
+                        errorDetails.style.display = 'none';
+                    }
+                }
+            
+                // Update Diagnostic Information
+                const diagnosticInfo = agentCard.querySelector('.diagnostic-info');
+                if (diagnosticInfo) {
+                    const healthIndicator = diagnosticInfo.querySelector('.health-indicator');
+                    if (healthIndicator) {
+                        healthIndicator.className = `health-indicator ${status === 'error' ? 'critical' : status === 'stalled' ? 'warning' : 'healthy'}`;
+                        healthIndicator.innerHTML = `
+                            <i class="fas ${status === 'error' ? 'fa-exclamation-triangle' : status === 'stalled' ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i>
+                            ${status === 'error' ? 'Critical' : status === 'stalled' ? 'Warning' : 'Healthy'}
+                        `;
+                    }
+            
+                    const outputSize = diagnosticInfo.querySelector('.output-size');
+                    if (outputSize) {
+                        const outputLength = update.output ? update.output.length : 0;
+                        outputSize.textContent = `${outputLength} bytes`;
+                    }
+            
+                    const lastUpdate = diagnosticInfo.querySelector('.last-update');
+if (lastUpdate) {
+    const lastUpdatedTime = update.timestamp ? new Date(update.timestamp).toLocaleString() : 'Never';
+    lastUpdate.textContent = lastUpdatedTime;
+}
+}
+            
+                // Update Modified Files
+                const filesList = agentCard.querySelector('.files-list ul');
+                if (filesList) {
+                    filesList.innerHTML = '';
+                    if (update.files && update.files.length > 0) {
+                        update.files.slice(0, 5).forEach(file => {
+                            const listItem = document.createElement('li');
+                            listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            listItem.innerHTML = `
+                                <span><i class="fas fa-file-code me-2"></i>${file}</span>
+                            `;
+                            filesList.appendChild(listItem);
+                        });
+            
+                        if (update.files.length > 5) {
+                            const moreItem = document.createElement('li');
+                            moreItem.className = 'list-group-item text-muted';
+                            moreItem.innerHTML = `<i class="fas fa-ellipsis-h me-2"></i>and ${update.files.length - 5} more`;
+                            filesList.appendChild(moreItem);
+                        }
+                    } else {
+                        const noFilesItem = document.createElement('li');
+                        noFilesItem.className = 'list-group-item text-muted';
+                        noFilesItem.innerHTML = '<i class="fas fa-info-circle me-2"></i>No files modified yet';
+                        filesList.appendChild(noFilesItem);
+                    }
+                }
+            
+                // Update Progress Analysis
+                const progressAnalysis = agentCard.querySelector('.progress-analysis');
+                if (progressAnalysis) {
+                    if (update.last_critique) {
+                        progressAnalysis.style.display = 'block';
+            
+                        const filesCreated = progressAnalysis.querySelector('.files-created');
+                        if (filesCreated) {
+                            filesCreated.textContent = update.last_critique.files_created || 'N/A';
+                        }
+            
+                        const complexity = progressAnalysis.querySelector('.complexity');
+                        if (complexity) {
+                            complexity.textContent = capitalizeFirstLetter(update.last_critique.complexity) || 'N/A';
+                        }
+            
+                        const statusElement = progressAnalysis.querySelector('.status');
+                        if (statusElement) {
+                            statusElement.textContent = capitalizeFirstLetter(update.status) || 'Unknown';
+                        }
+            
+                        const suggestedImprovements = progressAnalysis.querySelector('.suggested-improvements');
+                        if (suggestedImprovements) {
+                            suggestedImprovements.innerHTML = '';
+                            if (update.last_critique.potential_improvements && update.last_critique.potential_improvements.length > 0) {
+                                update.last_critique.potential_improvements.forEach(improvement => {
+                                    const listItem = document.createElement('li');
+                                    listItem.className = 'list-group-item';
+                                    listItem.innerHTML = `<i class="fas fa-lightbulb me-2 text-warning"></i>${improvement}`;
+                                    suggestedImprovements.appendChild(listItem);
+                                });
+                            } else {
+                                suggestedImprovements.style.display = 'none';
+                            }
+                        }
+                    } else {
+                        progressAnalysis.style.display = 'none';
+                    }
+                }
+            
+                // Update CLI Output
+                const cliOutput = agentCard.querySelector('.cli-output');
+                if (cliOutput) {
+                    if (status === 'pending') {
+                        cliOutput.innerHTML = `
+                            <div class="loading-state">
+                                <i class="fas fa-spinner fa-spin"></i> Loading...
+                            </div>
+                        `;
+                    } else if (typeof update.output === 'string' && update.output.trim() !== '') {
+                        cliOutput.innerHTML = update.output;
+                        cliOutput.classList.add('updating');
+                        setTimeout(() => {
+                            cliOutput.classList.remove('updating');
+                        }, 2000);
+                    } else {
+                        cliOutput.innerHTML = '<div class="skeleton" style="height: 150px;"></div>';
+                    }
+                }
+            
+                // Update Timestamps
+                const lastUpdated = agentCard.querySelector('.card-footer .last-updated');
+if (lastUpdated) {
+    const timestamp = update.timestamp ? new Date(update.timestamp).toLocaleString() : 'Never';
+    lastUpdated.textContent = timestamp;
+}
+            
+                // Update Retry Button Visibility
+                const retryButton = agentCard.querySelector('.retry-agent-btn');
+                if (retryButton) {
+                    retryButton.style.display = (status === 'error' || status === 'stalled') ? '' : 'none';
+                }
+            }
+            
+            function getStatusIcon(status) {
+                switch (status) {
+                    case 'pending':
+                        return 'fa-hourglass-start';
+                    case 'in_progress':
+                        return 'fa-spinner fa-spin';
+                    case 'error':
+                        return 'fa-exclamation-triangle';
+                    case 'stalled':
+                        return 'fa-pause-circle';
+                    case 'completed':
+                        return 'fa-check-circle';
+                    case 'unknown':
+                    default:
+                        return 'fa-question-circle';
+                }
+            }
+            
+            function capitalizeFirstLetter(string) {
+                if (!string) return 'Unknown';
+                return string.charAt(0).toUpperCase() + string.slice(1);
+            }
+            
+            function showToast(message, type) {
+                const toastEl = document.getElementById('toast');
+                const toastMessage = document.getElementById('toastMessage');
+            
+                if (toastMessage) {
+                    toastMessage.className = `toast-body ${type}`;
+                    toastMessage.innerHTML = `
+                        <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} me-2"></i>
+                        ${message}
+                    `;
+                }
+            
+                if (toastEl) {
+                    const toast = new bootstrap.Toast(toastEl);
+                    toast.show();
+                }
+            }
+            
+            // Event Listeners
+            const helpBtn = document.getElementById('helpBtn');
+            if (helpBtn) {
+                helpBtn.addEventListener('click', () => {
+                    const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+                    helpModal.show();
+                });
+            }
+            
+            // Delete Agent
+            document.addEventListener('click', (e) => {
+                const deleteButton = e.target.closest('.delete-agent-btn');
+                if (deleteButton) {
+                    const agentId = deleteButton.getAttribute('data-agent-id');
+                    if (agentId) {
+                        deleteAgent(agentId);
+                    }
+                }
+            });
+            
+            async function deleteAgent(agentId) {
+                try {
+                    const response = await fetch(`/delete_agent/${agentId}`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        const agentCard = document.getElementById(`agent-${agentId}`);
+                        if (agentCard) {
+                            agentCard.remove();
+                            showToast(`Agent ${agentId} deleted successfully`, 'success');
+                            socket.emit('request_update');
+                        }
+                    } else {
+                        showToast(`Failed to delete agent ${agentId}`, 'error');
+                    }
+                } catch (error) {
+                    console.error('Error deleting agent:', error);
+                    showToast(`Error deleting agent: ${error.message}`, 'error');
+                }
+            }
+            
+            // Keyboard Shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                if (e.key === 'r' || e.key === 'R') {
                     e.preventDefault();
-                    forceUpdate();
+                    socket.emit('request_update');
                     showToast('Refreshing agents...', 'info');
-                    break;
-                case '?':
-                    // Show help modal
+                } else if (e.key === '?') {
                     e.preventDefault();
                     const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
                     helpModal.show();
-                    break;
-                case 'escape':
-                    // Close all modals
-                    const modals = document.querySelectorAll('.modal');
+                } else if (e.key === 'Escape') {
+                    const modals = document.querySelectorAll('.modal.show');
                     modals.forEach(modal => {
-                        const bsModal = bootstrap.Modal.getInstance(modal);
-                        if (bsModal) {
-                            bsModal.hide();
+                        const modalInstance = bootstrap.Modal.getInstance(modal);
+                        if (modalInstance) {
+                            modalInstance.hide();
                         }
                     });
-                    break;
-            }
-        });
-
-        // Add help button to header
-        document.addEventListener('DOMContentLoaded', () => {
-            const header = document.querySelector('.container > .d-flex');
-            const helpButton = document.createElement('button');
-            helpButton.className = 'btn btn-outline-secondary ms-2';
-            helpButton.innerHTML = '<i class="fas fa-keyboard me-1"></i>Shortcuts';
-            helpButton.onclick = () => {
-                const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
-                helpModal.show();
-            };
-            header.querySelector('div').appendChild(helpButton);
-        });
-    </script>
+                }
+            });
+            
+            // Initialize
+            document.addEventListener('DOMContentLoaded', () => {
+                // Hide Page Loader after a delay
+                setTimeout(() => {
+                    const pageLoader = document.getElementById('pageLoader');
+                    if (pageLoader) {
+                        pageLoader.style.opacity = '0';
+                        pageLoader.style.transition = 'opacity 0.5s ease-out';
+                        setTimeout(() => pageLoader.style.display = 'none', 500);
+                    }
+                }, 500);
+            });
+        </script>
 </body>
 </html>

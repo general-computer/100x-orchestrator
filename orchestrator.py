@@ -1,4 +1,9 @@
-import os, json, traceback, subprocess, sys, uuid
+import os
+import json
+import traceback
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 import shutil
 import tempfile
@@ -10,376 +15,487 @@ import queue
 import io
 import errno
 import logging
+import logging.handlers
+from flask import Flask, render_template, request, jsonify
+from flask_socketio import emit
+from utils.installation_utils import AiderInstallationManager
+from utils.env_utils import EnvManager
 
-# Configure logging
+app = Flask(__name__)
+
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('aider_debug.log'),
+        logging.handlers.RotatingFileHandler(
+            'orchestrator.log',
+            maxBytes=5242880,  # 5MB
+            backupCount=3
+        ),
         logging.StreamHandler()
     ]
 )
 
-# ANSI escape codes for color and formatting
-class Colors:
-    HEADER = '\033[95m'; OKBLUE = '\033[94m'; OKCYAN = '\033[96m'; OKGREEN = '\033[92m'
-    WARNING = '\033[93m'; FAIL = '\033[91m'; ENDC = '\033[0m'; BOLD = '\033[1m'; UNDERLINE = '\033[4m'
+logger = logging.getLogger(__name__)
 
-# Configuration
+class Colors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 DEFAULT_AGENTS_PER_TASK = 2
 MODEL_NAME = os.environ.get('LITELLM_MODEL', 'anthropic/claude-3-5-sonnet-20240620')
 CONFIG_FILE = Path("config.json")
-tools, available_functions = [], {}
-MAX_TOOL_OUTPUT_LENGTH = 5000  # Adjust as needed
-CHECK_INTERVAL = 30  # Reduced to 30 seconds for more frequent updates
+CHECK_INTERVAL = 30
 
-# Global dictionary to store aider sessions
 aider_sessions = {}
+output_queue = queue.Queue()
+tools, available_functions = [], {}
+
+class AiderNotFoundError(Exception):
+    """Raised when aider is not installed or not found in PATH"""
+    pass
+
+def check_aider_installation():
+    """Check if aider is installed and available"""
+    aider_manager = AiderInstallationManager()
+    is_installed, _ = aider_manager.check_aider_installation()
+    return is_installed
+
+def start_aider_session(workspace_path, task, cmd_override=None):
+    """Start aider with appropriate error handling"""
+    aider_manager = AiderInstallationManager()
+    aider_path = aider_manager.get_aider_command()
+    
+    if not check_aider_installation():
+        logger.error("Aider is not installed or not found in PATH")
+        raise AiderNotFoundError(
+            "Aider is not installed. Please install it using:\n"
+            "pip install aider-chat"
+        )
+    
+    try:
+        if cmd_override:
+            cmd = cmd_override
+        else:
+            cmd = f'"{aider_path}" --mini --message "{task}"'
+        
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        process = subprocess.Popen(
+            cmd,
+            shell=True,
+            cwd=str(Path(workspace_path).resolve()),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            startupinfo=startupinfo,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=env
+        )
+        
+        return process
+    except Exception as e:
+        logger.error(f"Failed to start aider: {str(e)}")
+        raise
 
 def normalize_path(path_str):
-    """Normalize a path string to absolute path with forward slashes."""
     if not path_str:
         return None
     try:
-        # Convert to Path object and resolve to absolute path
         path = Path(path_str).resolve()
-        # Convert to string with forward slashes
         normalized = str(path).replace('\\', '/')
-        # Log both the input and output paths
-        logging.debug(f"Path normalization: {path_str} -> {normalized}")
+        logger.debug(f"Path normalization: {path_str} -> {normalized}")
         return normalized
     except Exception as e:
-        logging.error(f"Error normalizing path {path_str}: {e}")
+        logger.error(f"Error normalizing path {path_str}: {e}", exc_info=True)
         return None
 
 def validate_agent_paths(agent_id, workspace_path):
-    """Validate that an agent's paths match the given workspace path."""
     try:
         tasks_data = load_tasks()
         agent_data = tasks_data['agents'].get(agent_id)
         
         if not agent_data:
-            logging.error(f"No agent found with ID {agent_id}")
+            logger.error(f"No agent found with ID {agent_id}")
             return False
             
-        # Normalize all paths for comparison
         workspace_path = normalize_path(workspace_path)
         agent_workspace = normalize_path(agent_data.get('workspace'))
         agent_repo_path = normalize_path(agent_data.get('repo_path'))
         
-        logging.info(f"Validating paths for agent {agent_id}:")
-        logging.info(f"  Workspace path: {workspace_path}")
-        logging.info(f"  Agent workspace: {agent_workspace}")
-        logging.info(f"  Agent repo path: {agent_repo_path}")
+        logger.info(f"Validating paths for agent {agent_id}")
+        logger.info(f"  Workspace path: {workspace_path}")
+        logger.info(f"  Agent workspace: {agent_workspace}")
+        logger.info(f"  Agent repo path: {agent_repo_path}")
         
-        # Check if paths match
-        matches_workspace = workspace_path == agent_workspace
-        matches_repo = workspace_path == agent_repo_path
-        
-        logging.info(f"Path validation results for agent {agent_id}:")
-        logging.info(f"  Matches workspace: {matches_workspace}")
-        logging.info(f"  Matches repo path: {matches_repo}")
-        
-        return matches_workspace or matches_repo
+        return workspace_path in [agent_workspace, agent_repo_path]
         
     except Exception as e:
-        logging.error(f"Error validating agent paths: {e}", exc_info=True)
+        logger.error(f"Error validating agent paths: {e}", exc_info=True)
         return False
+    
+class AgentStatus:
+    """Agent status constants"""
+    PENDING = 'pending'
+    IN_PROGRESS = 'in_progress'
+    ERROR = 'error'
+    STALLED = 'stalled'
+    COMPLETED = 'completed'
+
+    @classmethod
+    def get_display_name(cls, status):
+        """Get user-friendly display name for status"""
+        return {
+            cls.PENDING: 'Pending',
+            cls.IN_PROGRESS: 'In Progress',
+            cls.ERROR: 'Error',
+            cls.STALLED: 'Stalled',
+            cls.COMPLETED: 'Completed'
+        }.get(status, status)
+
+    @classmethod
+    def is_error_state(cls, status):
+        """Check if status represents an error condition"""
+        return status in [cls.ERROR, cls.STALLED]
 
 class AiderSession:
     def __init__(self, workspace_path, task):
+        self.error_count = 0
+        self.consecutive_empty_reads = 0
+        self.max_empty_reads = 10
+        self.last_output_time = datetime.datetime.now()
         self.workspace_path = normalize_path(workspace_path)
         self.task = task
         self.output_buffer = io.StringIO()
         self.process = None
         self.output_queue = queue.Queue()
         self._stop_event = threading.Event()
-        self.session_id = str(uuid.uuid4())[:8]  # For logging
-        logging.info(f"[Session {self.session_id}] Initialized with workspace: {self.workspace_path}")
+        self.session_id = str(uuid.uuid4())[:8]
+        self.agent_id = None
         
-        # Validate paths immediately
+        logger.info(f"[Session {self.session_id}] Initialized with workspace: {self.workspace_path}")
+        
         for agent_id in aider_sessions:
             if validate_agent_paths(agent_id, self.workspace_path):
-                logging.info(f"[Session {self.session_id}] Successfully validated paths for agent {agent_id}")
-            else:
-                logging.warning(f"[Session {self.session_id}] Path validation failed for agent {agent_id}")
+                self.agent_id = agent_id
+                logger.info(f"[Session {self.session_id}] Associated with agent {self.agent_id}")
+                break
 
     def start(self):
-        """Start the aider session"""
+     try:
+        logger.info(f"[Session {self.session_id}] Starting aider session in workspace: {self.workspace_path}")
+        
+        tasks_data = load_tasks()
+        for agent_id, agent_data in tasks_data['agents'].items():
+            if normalize_path(agent_data.get('workspace')) == self.workspace_path:
+                self.agent_id = agent_id
+                break
+        
         try:
-            logging.info(f"[Session {self.session_id}] Starting aider session in workspace: {self.workspace_path}")
-            
-            # Create startupinfo to hide console window
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            # Start aider process with unbuffered output
-            cmd = f'aider --mini --message "{self.task}"'
-            logging.info(f"[Session {self.session_id}] Executing command: {cmd}")
-            
-            # Set up environment with forced unbuffering
-            env = os.environ.copy()
-            env['PYTHONUNBUFFERED'] = '1'
-            env['PYTHONIOENCODING'] = 'utf-8'
-            
-            self.process = subprocess.Popen(
-                cmd,
-                shell=True,
-                cwd=str(Path(self.workspace_path).resolve()),  # Ensure absolute path
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                startupinfo=startupinfo,
-                text=True,
-                bufsize=1,  # Line buffered
-                universal_newlines=True,
-                env=env
-            )
-            
-            logging.info(f"[Session {self.session_id}] Process started with PID: {self.process.pid}")
-            logging.info(f"[Session {self.session_id}] Working directory: {self.workspace_path}")
-
-            # Start output reading threads
-            stdout_thread = threading.Thread(
-                target=self._read_output, 
-                args=(self.process.stdout, "stdout"), 
-                daemon=True,
-                name=f"stdout-{self.session_id}"
-            )
-            stderr_thread = threading.Thread(
-                target=self._read_output, 
-                args=(self.process.stderr, "stderr"), 
-                daemon=True,
-                name=f"stderr-{self.session_id}"
-            )
-            process_thread = threading.Thread(
-                target=self._process_output, 
-                daemon=True,
-                name=f"process-{self.session_id}"
-            )
-            
-            stdout_thread.start()
-            stderr_thread.start()
-            process_thread.start()
-            
-            logging.info(f"[Session {self.session_id}] Started output processing threads")
-
-            # Verify threads are running
-            for thread in [stdout_thread, stderr_thread, process_thread]:
-                if not thread.is_alive():
-                    logging.error(f"[Session {self.session_id}] Thread {thread.name} failed to start")
-                    return False
-                logging.info(f"[Session {self.session_id}] Thread {thread.name} is running")
-
-            return True
-        except Exception as e:
-            logging.error(f"[Session {self.session_id}] Failed to start aider session: {e}", exc_info=True)
+            self.process = start_aider_session(self.workspace_path, self.task)
+            logger.info(f"[Session {self.session_id}] Process started with PID: {self.process.pid}")
+        except AiderNotFoundError as e:
+            logger.error(f"[Session {self.session_id}] Aider not found: {str(e)}")
+            self._update_agent_status('error')
+            if self.agent_id:
+                tasks_data = load_tasks()
+                if self.agent_id in tasks_data['agents']:
+                    agent_data = tasks_data['agents'][self.agent_id]
+                    agent_data['status'] = 'error'
+                    agent_data['status_reason'] = str(e)
+                    agent_data['error_details'] = {
+                        'error_count': 1,
+                        'last_output_time': datetime.datetime.now().isoformat(),
+                        'consecutive_empty_reads': 0
+                    }
+                    save_tasks(tasks_data)
             return False
+        
+        # Start the threads for reading output
+        stdout_thread = threading.Thread(
+            target=self._read_output,
+            args=(self.process.stdout, "stdout"),
+            daemon=True,
+            name=f"stdout-{self.session_id}"
+        )
+        stderr_thread = threading.Thread(
+            target=self._read_output,
+            args=(self.process.stderr, "stderr"),
+            daemon=True,
+            name=f"stderr-{self.session_id}"
+        )
+        process_thread = threading.Thread(
+            target=self._process_output,
+            daemon=True,
+            name=f"process-{self.session_id}"
+        )
+        
+        stdout_thread.start()
+        stderr_thread.start()
+        process_thread.start()
+        
+        for thread in [stdout_thread, stderr_thread, process_thread]:
+            if not thread.is_alive():
+                logger.error(f"[Session {self.session_id}] Thread {thread.name} failed to start")
+                return False
+            logger.info(f"[Session {self.session_id}] Thread {thread.name} is running")
+        
+        return True
+        
+     except Exception as e:
+        logger.error(f"[Session {self.session_id}] Failed to start aider session: {e}", exc_info=True)
+        if self.agent_id:
+            self._update_agent_status('error')
+        return False
 
     def _read_output(self, pipe, pipe_name):
-        """Read output from a pipe and put it in the queue"""
         try:
-            logging.info(f"[Session {self.session_id}] Started reading from {pipe_name}")
+            logger.info(f"[Session {self.session_id}] Started reading from {pipe_name}")
             for line in iter(pipe.readline, ''):
                 if self._stop_event.is_set():
                     break
-                logging.debug(f"[Session {self.session_id}] {pipe_name} received: {line.strip()}")
+                    
+                if line.strip():  # Reset counters on valid output
+                    self.consecutive_empty_reads = 0
+                    self.last_output_time = datetime.datetime.now()
+                    
+                    # Detect error messages
+                    if any(error_sign in line.lower() for error_sign in [
+                        'error:', 'exception:', 'failed:', 'traceback:',
+                        'could not', 'unable to', 'permission denied'
+                    ]):
+                        self.error_count += 1
+                        logger.warning(f"[Session {self.session_id}] Error detected: {line.strip()}")
+                else:
+                    self.consecutive_empty_reads += 1
+                
                 self.output_queue.put(line)
-                # Flush the pipe to ensure we get output immediately
                 pipe.flush()
+                
+                # Check for stalled state
+                if self.consecutive_empty_reads >= self.max_empty_reads:
+                    self._update_agent_status(AgentStatus.STALLED)
+                    logger.warning(f"[Session {self.session_id}] Agent appears to be stalled")
+                
         except Exception as e:
-            logging.error(f"[Session {self.session_id}] Error reading from {pipe_name}: {e}", exc_info=True)
+            logger.error(f"[Session {self.session_id}] Error reading from {pipe_name}: {e}", exc_info=True)
+            self._update_agent_status(AgentStatus.ERROR)
         finally:
-            try:
-                pipe.close()
-                logging.info(f"[Session {self.session_id}] Closed {pipe_name} pipe")
-            except Exception as e:
-                logging.error(f"[Session {self.session_id}] Error closing {pipe_name} pipe: {e}", exc_info=True)
+            pipe.close()
+            logger.info(f"[Session {self.session_id}] Closed {pipe_name} pipe")
+            
+            
+    def _update_agent_status(self, status):
+        try:
+            if not self.agent_id:
+                return
+                
+            tasks_data = load_tasks()
+            if self.agent_id in tasks_data['agents']:
+                agent_data = tasks_data['agents'][self.agent_id]
+                old_status = agent_data.get('status')
+                
+                if old_status != status:
+                    agent_data['status'] = status
+                    agent_data['status_changed_at'] = datetime.datetime.now().isoformat()
+                    agent_data['status_reason'] = self._get_status_reason(status)
+                    
+                    if status in [AgentStatus.ERROR, AgentStatus.STALLED]:
+                        agent_data['error_details'] = {
+                            'error_count': self.error_count,
+                            'consecutive_empty_reads': self.consecutive_empty_reads,
+                            'last_output_time': self.last_output_time.isoformat()
+                        }
+                    
+                    save_tasks(tasks_data)
+                    
+                    # Emit status update
+                    update = {
+                        'agent_id': self.agent_id,
+                        'status': status,
+                        'status_reason': agent_data['status_reason'],
+                        'error_details': agent_data.get('error_details'),
+                        'timestamp': datetime.datetime.now().isoformat()
+                    }
+                    output_queue.put(update)
+                    
+                    logger.info(f"[Session {self.session_id}] Updated agent {self.agent_id} status to {status}")
+        except Exception as e:
+            logger.error(f"[Session {self.session_id}] Error updating agent status: {e}", exc_info=True)
+            
+    def _get_status_reason(self, status):
+        if status == AgentStatus.ERROR:
+            return f"Encountered {self.error_count} errors during execution"
+        elif status == AgentStatus.STALLED:
+            time_since_output = datetime.datetime.now() - self.last_output_time
+            return f"No output received for {time_since_output.seconds} seconds"
+        return None
+    
+    def check_health(self):
+        """Periodically check agent health and update status"""
+        try:
+            if not self.process:
+                return
+                
+            # Check if process is still running
+            if self.process.poll() is not None:
+                logger.warning(f"[Session {self.session_id}] Process has terminated")
+                self._update_agent_status(AgentStatus.ERROR)
+                return
+            
+            # Check time since last output
+            time_since_output = datetime.datetime.now() - self.last_output_time
+            if time_since_output.seconds > 300:  # 5 minutes
+                logger.warning(f"[Session {self.session_id}] No output for {time_since_output.seconds} seconds")
+                self._update_agent_status(AgentStatus.STALLED)
+                return
+            
+            # Check error threshold
+            if self.error_count > 5:
+                logger.warning(f"[Session {self.session_id}] Error threshold exceeded")
+                self._update_agent_status(AgentStatus.ERROR)
+                return
+                
+        except Exception as e:
+            logger.error(f"[Session {self.session_id}] Error in health check: {e}", exc_info=True)
+            self._update_agent_status(AgentStatus.ERROR)
 
     def _process_output(self):
-        """Process output from the queue and write to buffer"""
-        logging.info(f"[Session {self.session_id}] Started output processing thread")
+        logger.info(f"[Session {self.session_id}] Started output processing thread")
         buffer_update_count = 0
         
         while not self._stop_event.is_set():
             try:
-                # Reduced timeout for more frequent updates
                 try:
                     line = self.output_queue.get(timeout=0.05)
                 except queue.Empty:
                     continue
                 
-                # Lock for thread safety when updating buffer
                 with threading.Lock():
-                    self.output_buffer.seek(0, 2)  # Seek to end
+                    self.output_buffer.seek(0, 2)
                     self.output_buffer.write(line)
                     buffer_update_count += 1
                     
-                    # Log buffer status
-                    current_content = self.output_buffer.getvalue()
-                    logging.debug(f"[Session {self.session_id}] Buffer update #{buffer_update_count}")
-                    logging.debug(f"[Session {self.session_id}] Current buffer length: {len(current_content)}")
-                    logging.debug(f"[Session {self.session_id}] Last line added: {line.strip()}")
+                    current_output = self.get_output()
                     
-                    # Update tasks.json every 5 buffer updates or if line contains important content
+                    if self.agent_id:
+                        update = {
+                            'agent_id': self.agent_id,
+                            'output': current_output,
+                            'timestamp': datetime.datetime.now().isoformat()
+                        }
+                        output_queue.put(update)
+                    
                     if buffer_update_count % 5 == 0 or any(keyword in line for keyword in ['Error:', 'Warning:', 'Success:']):
                         self._update_output_in_tasks()
-                        logging.debug(f"[Session {self.session_id}] Forced tasks.json update after {buffer_update_count} updates")
                 
             except Exception as e:
-                logging.error(f"[Session {self.session_id}] Error processing output: {e}", exc_info=True)
-                # Don't break on error, try to continue processing
-                continue
+                logger.error(f"[Session {self.session_id}] Error processing output: {e}", exc_info=True)
 
     def _update_output_in_tasks(self):
-        """Update the output in tasks.json"""
         try:
             tasks_data = load_tasks()
             updated = False
             current_output = self.get_output()
-            
-            # Log the output being saved
-            logging.debug(f"[Session {self.session_id}] Attempting to save output (length: {len(current_output)})")
-            logging.debug(f"[Session {self.session_id}] Current workspace path: {self.workspace_path}")
-            
-            # Normalize current workspace path
             current_workspace = normalize_path(self.workspace_path)
             
-            # First try to find agent by matching session ID with agent ID
-            matching_agent_id = None
-            for agent_id, session in aider_sessions.items():
-                if session.session_id == self.session_id:
-                    matching_agent_id = agent_id
-                    break
-            
-            if matching_agent_id:
-                logging.debug(f"[Session {self.session_id}] Found matching agent by session ID: {matching_agent_id}")
-                agent_data = tasks_data['agents'].get(matching_agent_id)
+            if self.agent_id:
+                agent_data = tasks_data['agents'].get(self.agent_id)
                 if agent_data:
-                    # Update the repo_path if it's not set
                     if not agent_data.get('repo_path'):
                         agent_data['repo_path'] = current_workspace
-                        logging.info(f"[Session {self.session_id}] Updated repo_path for agent {matching_agent_id}")
                     
-                    # Update output
                     if current_output != agent_data.get('aider_output', ''):
                         agent_data['aider_output'] = current_output
                         agent_data['last_updated'] = datetime.datetime.now().isoformat()
                         updated = True
-                        logging.info(f"[Session {self.session_id}] Updated output for agent {matching_agent_id}")
             else:
-                # Fall back to path matching if session ID matching fails
                 for agent_id, agent_data in tasks_data['agents'].items():
-                    # Normalize agent paths
                     agent_workspace = normalize_path(agent_data.get('workspace'))
                     agent_repo_path = normalize_path(agent_data.get('repo_path'))
                     
-                    # Log comparison details
-                    logging.debug(f"[Session {self.session_id}] Comparing paths for agent {agent_id}:")
-                    logging.debug(f"Current workspace: {current_workspace}")
-                    logging.debug(f"Agent workspace: {agent_workspace}")
-                    logging.debug(f"Agent repo_path: {agent_repo_path}")
-                    
-                    # Update repo_path if it matches workspace but repo_path isn't set
                     if current_workspace == agent_workspace and not agent_repo_path:
                         agent_data['repo_path'] = current_workspace
-                        logging.info(f"[Session {self.session_id}] Updated repo_path for agent {agent_id}")
                     
-                    # Check if either path matches
                     if current_workspace in [agent_workspace, agent_repo_path]:
-                        logging.debug(f"[Session {self.session_id}] Found matching agent: {agent_id}")
-                        
-                        # Only update if output has changed
                         if current_output != agent_data.get('aider_output', ''):
                             agent_data['aider_output'] = current_output
                             agent_data['last_updated'] = datetime.datetime.now().isoformat()
                             updated = True
-                            logging.info(f"[Session {self.session_id}] Updated output for agent {agent_id}")
+                            self.agent_id = agent_id
                         break
             
             if updated:
                 save_tasks(tasks_data)
-                logging.info(f"[Session {self.session_id}] Saved updated output to tasks.json")
-            else:
-                logging.warning(f"[Session {self.session_id}] No matching agent found for workspace {current_workspace}")
-                # Log all workspace paths for debugging
-                logging.debug("Available agent paths:")
-                for aid, adata in tasks_data['agents'].items():
-                    logging.debug(f"Agent {aid}:")
-                    logging.debug(f"  workspace: {normalize_path(adata.get('workspace'))}")
-                    logging.debug(f"  repo_path: {normalize_path(adata.get('repo_path'))}")
-                    
+                logger.info(f"[Session {self.session_id}] Updated output for agent {self.agent_id}")
+            
         except Exception as e:
-            logging.error(f"[Session {self.session_id}] Error updating output in tasks: {e}", exc_info=True)
+            logger.error(f"[Session {self.session_id}] Error updating output in tasks: {e}", exc_info=True)
 
     def get_output(self):
-        """Get the current output buffer contents"""
         try:
-            # Save current position
             pos = self.output_buffer.tell()
-            # Go to beginning
             self.output_buffer.seek(0)
-            # Read all content
             output = self.output_buffer.read()
-            # Restore position
             self.output_buffer.seek(pos)
-            
-            logging.debug(f"[Session {self.session_id}] Retrieved output (length: {len(output)})")
-            logging.debug(f"[Session {self.session_id}] Output preview: {output[:200]}...")  # Log preview of output
             return output
         except Exception as e:
-            logging.error(f"[Session {self.session_id}] Error getting output: {e}", exc_info=True)
+            logger.error(f"[Session {self.session_id}] Error getting output: {e}", exc_info=True)
             return ""
 
     def cleanup(self):
-        """Clean up the aider session"""
         try:
-            logging.info(f"[Session {self.session_id}] Starting cleanup")
+            logger.info(f"[Session {self.session_id}] Starting cleanup")
             self._stop_event.set()
             if self.process:
-                logging.info(f"[Session {self.session_id}] Terminating process {self.process.pid}")
+                logger.info(f"[Session {self.session_id}] Terminating process {self.process.pid}")
                 self.process.terminate()
                 try:
                     self.process.wait(timeout=5)
-                    logging.info(f"[Session {self.session_id}] Process terminated successfully")
                 except subprocess.TimeoutExpired:
-                    logging.warning(f"[Session {self.session_id}] Process did not terminate, forcing kill")
+                    logger.warning(f"[Session {self.session_id}] Process did not terminate, forcing kill")
                     self.process.kill()
-            logging.info(f"[Session {self.session_id}] Cleanup completed")
+            logger.info(f"[Session {self.session_id}] Cleanup completed")
         except Exception as e:
-            logging.error(f"[Session {self.session_id}] Error during cleanup: {e}", exc_info=True)
+            logger.error(f"[Session {self.session_id}] Error during cleanup: {e}", exc_info=True)
 
 def load_tasks():
-    """Load config from config.json."""
     try:
         with open(CONFIG_FILE, 'r') as f:
             data = json.load(f)
             if 'repository_url' not in data:
                 data['repository_url'] = ""
                 
-            # Normalize paths in loaded data
             for agent_id, agent_data in data.get('agents', {}).items():
                 if 'workspace' in agent_data:
                     agent_data['workspace'] = normalize_path(agent_data['workspace'])
                 if 'repo_path' in agent_data:
                     agent_data['repo_path'] = normalize_path(agent_data['repo_path'])
-                    
-                # Log the normalized paths
-                logging.debug(f"Loaded agent {agent_id} with normalized paths:")
-                logging.debug(f"  workspace: {agent_data.get('workspace')}")
-                logging.debug(f"  repo_path: {agent_data.get('repo_path')}")
-                
-            logging.debug(f"Loaded tasks data: {json.dumps(data, indent=2)}")
+            
             return data
     except FileNotFoundError:
-        logging.info("tasks.json not found, creating new data structure")
+        logger.info("config.json not found, creating new data structure")
         return {
             "tasks": [],
             "agents": {},
             "repository_url": ""
         }
-    except json.JSONDecodeError:
-        logging.error("Error decoding tasks.json", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error loading tasks: {e}", exc_info=True)
         return {
             "tasks": [],
             "agents": {},
@@ -387,16 +503,13 @@ def load_tasks():
         }
 
 def save_tasks(tasks_data):
-    """Save tasks to tasks.json."""
     try:
-        # Create a copy of the data to avoid modifying the original
         data_to_save = {
             "tasks": tasks_data.get("tasks", []),
             "agents": {},
             "repository_url": tasks_data.get("repository_url", "")
         }
         
-        # Copy agent data without the session object and normalize paths
         for agent_id, agent_data in tasks_data.get("agents", {}).items():
             data_to_save["agents"][agent_id] = {
                 'workspace': normalize_path(agent_data.get('workspace')),
@@ -409,96 +522,84 @@ def save_tasks(tasks_data):
                 'last_critique': agent_data.get('last_critique')
             }
             
-            # Log the normalized paths
-            logging.debug(f"Saving agent {agent_id} with normalized paths:")
-            logging.debug(f"  workspace: {data_to_save['agents'][agent_id]['workspace']}")
-            logging.debug(f"  repo_path: {data_to_save['agents'][agent_id]['repo_path']}")
-        
-        logging.debug(f"Saving tasks data: {json.dumps(data_to_save, indent=2)}")
         with open(CONFIG_FILE, 'w') as f:
             json.dump(data_to_save, f, indent=4)
-        logging.info("Successfully saved tasks data")
+        logger.info("Successfully saved tasks data")
     except Exception as e:
-        logging.error(f"Error saving tasks: {e}", exc_info=True)
+        logger.error(f"Error saving tasks: {e}", exc_info=True)
 
 def delete_agent(agent_id):
-    """Delete a specific agent and clean up its workspace."""
     try:
-        logging.info(f"Attempting to delete agent {agent_id}")
+        logger.info(f"Attempting to delete agent {agent_id}")
         tasks_data = load_tasks()
         
-        # Find and remove the agent
         if agent_id in tasks_data['agents']:
             agent_data = tasks_data['agents'][agent_id]
-            logging.info(f"Found agent {agent_id} in tasks data")
             
-            # Cleanup aider session if it exists
             if agent_id in aider_sessions:
-                logging.info(f"Cleaning up aider session for agent {agent_id}")
+                logger.info(f"Cleaning up aider session for agent {agent_id}")
                 aider_sessions[agent_id].cleanup()
                 del aider_sessions[agent_id]
             
-            # Remove workspace directory if it exists
             workspace = agent_data.get('workspace')
             if workspace and os.path.exists(workspace):
                 try:
                     shutil.rmtree(workspace)
-                    logging.info(f"Removed workspace for agent {agent_id}: {workspace}")
+                    logger.info(f"Removed workspace for agent {agent_id}: {workspace}")
                 except Exception as e:
-                    logging.error(f"Could not remove workspace: {e}", exc_info=True)
+                    logger.error(f"Could not remove workspace: {e}", exc_info=True)
             
-            # Remove agent from tasks data
             del tasks_data['agents'][agent_id]
             save_tasks(tasks_data)
             
-            logging.info(f"Successfully deleted agent {agent_id}")
+            update = {
+                'agent_id': agent_id,
+                'type': 'deletion',
+                'timestamp': datetime.datetime.now().isoformat()
+            }
+            output_queue.put(update)
+            
             return True
         else:
-            logging.warning(f"No agent found with ID {agent_id}")
+            logger.warning(f"No agent found with ID {agent_id}")
             return False
     except Exception as e:
-        logging.error(f"Error deleting agent: {e}", exc_info=True)
+        logger.error(f"Error deleting agent: {e}", exc_info=True)
         return False
 
 def initialiseCodingAgent(repository_url: str = None, task_description: str = None, num_agents: int = None):
-    """Initialise coding agents with configurable agent count."""
-    logging.info("Starting agent initialization")
-    logging.debug(f"Parameters: repo_url={repository_url}, task={task_description}, num_agents={num_agents}")
-    
-    # Use provided num_agents or get default from config
-    num_agents = num_agents or DEFAULT_AGENTS_PER_TASK
-    
-    # Validate input
-    if not task_description:
-        logging.error("No task description provided")
-        return None
-    
-    # Track created agent IDs
-    created_agent_ids = []
-    
     try:
-        # Load tasks data to get repository URL
+        # First check if aider is installed
+        if not check_aider_installation():
+            logger.error("Aider is not installed. Cannot create agents.")
+            return None
+            
+        num_agents = num_agents or DEFAULT_AGENTS_PER_TASK
+        
+        if not task_description:
+            logger.error("No task description provided")
+            return None
+        
+        created_agent_ids = []
+        
         tasks_data = load_tasks()
         if repository_url:
             tasks_data['repository_url'] = repository_url
             save_tasks(tasks_data)
-            logging.info(f"Updated repository URL: {repository_url}")
+            logger.info(f"Updated repository URL: {repository_url}")
         else:
             repository_url = tasks_data.get('repository_url')
-            logging.info(f"Using existing repository URL: {repository_url}")
+            logger.info(f"Using existing repository URL: {repository_url}")
         
         for i in range(num_agents):
-            logging.info(f"Creating agent {i+1} of {num_agents}")
+            logger.info(f"Creating agent {i+1} of {num_agents}")
             
-            # Generate unique agent ID
             agent_id = str(uuid.uuid4())
-            logging.info(f"Generated agent ID: {agent_id}")
+            logger.info(f"Generated agent ID: {agent_id}")
             
-            # Create temporary workspace directory with absolute path
             agent_workspace = Path(tempfile.mkdtemp(prefix=f"agent_{agent_id}_")).resolve()
-            logging.info(f"Created workspace at: {agent_workspace}")
+            logger.info(f"Created workspace at: {agent_workspace}")
             
-            # Create standard directory structure
             workspace_dirs = {
                 "src": agent_workspace / "src",
                 "tests": agent_workspace / "tests", 
@@ -507,77 +608,66 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 "repo": agent_workspace / "repo"
             }
             
-            # Create all directories
             for dir_path in workspace_dirs.values():
                 dir_path.mkdir(parents=True, exist_ok=True)
-            logging.info("Created workspace directory structure")
+            logger.info("Created workspace directory structure")
                 
-            # Create task file in agent workspace
             task_file = agent_workspace / "current_task.txt"
             task_file.write_text(task_description)
-            logging.info("Created task file")
+            logger.info("Created task file")
             
-            # Store current directory
             original_dir = Path.cwd()
             repo_dir = None
             full_repo_path = None
             
             try:
-                # Clone repository into repo subdirectory
                 os.chdir(workspace_dirs["repo"])
                 if not repository_url:
-                    logging.error("No repository URL provided")
+                    logger.error("No repository URL provided")
                     shutil.rmtree(agent_workspace)
                     continue
                 
-                logging.info(f"Cloning repository: {repository_url}")
+                logger.info(f"Cloning repository: {repository_url}")
                 if not cloneRepository(repository_url):
-                    logging.error("Failed to clone repository")
+                    logger.error("Failed to clone repository")
                     shutil.rmtree(agent_workspace)
                     continue
                 
-                # Get the cloned repository directory name
                 repo_dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
                 if not repo_dirs:
-                    logging.error("No repository directory found after cloning")
+                    logger.error("No repository directory found after cloning")
                     shutil.rmtree(agent_workspace)
                     continue
                 
                 repo_dir = repo_dirs[0]
                 full_repo_path = workspace_dirs["repo"] / repo_dir
-                full_repo_path = full_repo_path.resolve()  # Get absolute path
-                logging.info(f"Repository cloned to: {full_repo_path}")
+                full_repo_path = full_repo_path.resolve()
+                logger.info(f"Repository cloned to: {full_repo_path}")
                 
-                # Change to the cloned repository directory
                 os.chdir(full_repo_path)
                 
-                # Create and checkout new branch
                 branch_name = f"agent-{agent_id[:8]}"
                 try:
                     subprocess.check_call(f"git checkout -b {branch_name}", shell=True)
-                    logging.info(f"Created and checked out branch: {branch_name}")
+                    logger.info(f"Created and checked out branch: {branch_name}")
                 except subprocess.CalledProcessError:
-                    logging.error("Failed to create new branch", exc_info=True)
+                    logger.error("Failed to create new branch", exc_info=True)
                     shutil.rmtree(agent_workspace)
                     continue
 
-                # Initialize aider session with absolute path
-                logging.info("Initializing aider session")
+                logger.info("Initializing aider session")
                 aider_session = AiderSession(str(full_repo_path), task_description)
                 if not aider_session.start():
-                    logging.error("Failed to start aider session")
+                    logger.error("Failed to start aider session")
                     shutil.rmtree(agent_workspace)
                     continue
 
-                # Store session in global dictionary
                 aider_sessions[agent_id] = aider_session
-                logging.info("Aider session started successfully")
+                logger.info("Aider session started successfully")
 
             finally:
-                # Always return to original directory
                 os.chdir(original_dir)
             
-            # Update tasks.json with new agent using absolute paths
             tasks_data['agents'][agent_id] = {
                 'workspace': normalize_path(agent_workspace),
                 'repo_path': normalize_path(full_repo_path) if full_repo_path else None,
@@ -585,122 +675,178 @@ def initialiseCodingAgent(repository_url: str = None, task_description: str = No
                 'status': 'pending',
                 'created_at': datetime.datetime.now().isoformat(),
                 'last_updated': datetime.datetime.now().isoformat(),
-                'aider_output': ''  # Initialize empty output
+                'aider_output': ''
             }
             save_tasks(tasks_data)
             
-            logging.info(f"Successfully initialized agent {agent_id}")
+            logger.info(f"Successfully initialized agent {agent_id}")
             created_agent_ids.append(agent_id)
         
         return created_agent_ids if created_agent_ids else None
         
     except Exception as e:
-        logging.error(f"Error initializing coding agents: {e}", exc_info=True)
+        logger.error(f"Error initializing coding agents: {e}", exc_info=True)
         return None
 
 def cloneRepository(repository_url: str) -> bool:
-    """Clone git repository using subprocess.check_call."""
     try:
         if not repository_url:
-            logging.error("No repository URL provided")
+            logger.error("No repository URL provided")
             return False
-        logging.info(f"Cloning repository: {repository_url}")
+        logger.info(f"Cloning repository: {repository_url}")
         subprocess.check_call(f"git clone {repository_url}", shell=True)
         return True
     except subprocess.CalledProcessError as e:
-        logging.error(f"Git clone failed with exit code {e.returncode}", exc_info=True)
+        logger.error(f"Git clone failed with exit code {e.returncode}", exc_info=True)
         return False
 
 def critique_agent_progress(agent_id):
-    """Critique the progress of a specific agent."""
     try:
-        logging.info(f"Critiquing progress for agent {agent_id}")
+        logger.info(f"Critiquing progress for agent {agent_id}")
         tasks_data = load_tasks()
         agent_data = tasks_data['agents'].get(agent_id)
         
         if not agent_data:
-            logging.error(f"No agent found with ID {agent_id}")
+            logger.error(f"No agent found with ID {agent_id}")
             return None
         
-        # Use repo_path for file search
         repo_path = agent_data.get('repo_path')
         if not repo_path:
-            logging.error(f"No repo path found for agent {agent_id}")
+            logger.error(f"No repo path found for agent {agent_id}")
+            agent_data.update({
+                'status': AgentStatus.ERROR,
+                'status_reason': 'Repository path not found'
+            })
             return None
             
         workspace = Path(repo_path)
         if not workspace.exists():
-            logging.error(f"Workspace path does not exist: {workspace}")
+            logger.error(f"Workspace path does not exist: {workspace}")
+            agent_data.update({
+                'status': AgentStatus.ERROR,
+                'status_reason': f'Workspace path does not exist: {workspace}'
+            })
             return None
         
-        src_files = list(workspace.glob('**/*.py'))  # Check Python files
-        logging.info(f"Found {len(src_files)} Python files in workspace")
+        src_files = list(workspace.glob('**/*.py'))
+        logger.info(f"Found {len(src_files)} Python files in workspace")
         
         critique = {
             'files_created': len(src_files),
-            'complexity': 'moderate',  # This would be a more sophisticated assessment
+            'complexity': 'moderate',
             'potential_improvements': []
         }
         
-        # Update agent status based on critique
-        agent_data['status'] = 'in_progress' if len(src_files) > 0 else 'pending'
-        
-        # Update aider output
-        if agent_id in aider_sessions:
-            output = aider_sessions[agent_id].get_output()
+        # Update status based on progress and health
+        aider_session = aider_sessions.get(agent_id)
+        if aider_session:
+            if aider_session.error_count > 5:
+                agent_data['status'] = AgentStatus.ERROR
+                agent_data['status_reason'] = f'Error threshold exceeded ({aider_session.error_count} errors)'
+            elif aider_session.consecutive_empty_reads >= aider_session.max_empty_reads:
+                agent_data['status'] = AgentStatus.STALLED
+                agent_data['status_reason'] = 'No output received for extended period'
+            elif len(src_files) > 0:
+                agent_data['status'] = AgentStatus.IN_PROGRESS
+            else:
+                agent_data['status'] = AgentStatus.PENDING
+                
+            output = aider_session.get_output()
             agent_data['aider_output'] = output
-            logging.debug(f"Updated aider output (length: {len(output)})")
+            if output:
+                agent_data['last_updated'] = datetime.datetime.now().isoformat()
+        else:
+            agent_data['status'] = AgentStatus.ERROR
+            agent_data['status_reason'] = 'Agent session not found'
         
         agent_data['last_critique'] = critique
-        agent_data['last_updated'] = datetime.datetime.now().isoformat()
         
         save_tasks(tasks_data)
-        logging.info(f"Completed critique for agent {agent_id}")
+        logger.info(f"Completed critique for agent {agent_id}")
         return critique
     
     except Exception as e:
-        logging.error(f"Error critiquing agent progress: {e}", exc_info=True)
+        logger.error(f"Error critiquing agent progress: {e}", exc_info=True)
+        agent_data.update({
+            'status': AgentStatus.ERROR,
+            'status_reason': f'Error during critique: {str(e)}'
+        })
         return None
 
+
 def main_loop():
-    """Main orchestration loop to manage agents."""
-    logging.info("Starting main orchestration loop")
+    logger.info("Starting main orchestration loop")
     while True:
         try:
-            # Load current tasks and agents
             tasks_data = load_tasks()
+            current_time = datetime.datetime.now().isoformat()
             
-            # Check each agent's progress
             for agent_id, agent_data in list(tasks_data['agents'].items()):
-                logging.info(f"Checking agent {agent_id}")
+                logger.info(f"Processing agent {agent_id}")
                 
-                # Critique progress
+                aider_session = aider_sessions.get(agent_id)
+                if not aider_session:
+                    agent_data.update({
+                        'status': AgentStatus.ERROR,
+                        'status_reason': 'Aider session not found or terminated',
+                        'error_details': {
+                            'error_count': 1,
+                            'last_output_time': current_time,
+                            'consecutive_empty_reads': 0
+                        },
+                        'last_updated': current_time
+                    })
+                    continue
+                    
+                # Run health check
+                aider_session.check_health()
+                agent_output = aider_session.get_output()
+                
+                # Update agent data
+                agent_data.update({
+                    'aider_output': agent_output,
+                    'last_updated': current_time
+                })
+                
+                # Check agent state and critique
                 critique = critique_agent_progress(agent_id)
+                if critique:
+                    agent_data['last_critique'] = critique
                 
-                # Update prompt file in temporary workspace
-                if agent_data.get('workspace'):
-                    prompt_file = Path(agent_data['workspace']) / 'config' / 'prompt.txt'
-                    prompt_file.parent.mkdir(parents=True, exist_ok=True)
-                    prompt_data = {
-                        'task': agent_data.get('task', ''),
-                        'status': agent_data.get('status', 'unknown'),
-                        'last_critique': critique,
-                        'aider_output': agent_data.get('aider_output', '')
-                    }
-                    prompt_file.write_text(json.dumps(prompt_data, indent=4))
-                    logging.debug(f"Updated prompt file for agent {agent_id}")
+                # Force error status if process has terminated
+                if aider_session.process and aider_session.process.poll() is not None:
+                    agent_data.update({
+                        'status': AgentStatus.ERROR,
+                        'status_reason': 'Agent process has terminated unexpectedly',
+                        'error_details': {
+                            'error_count': aider_session.error_count,
+                            'last_output_time': aider_session.last_output_time.isoformat(),
+                            'consecutive_empty_reads': aider_session.consecutive_empty_reads
+                        }
+                    })
+                
+                # Emit update via WebSocket
+                status_update = {
+                    'agent_id': agent_id,
+                    'status': agent_data.get('status'),
+                    'status_reason': agent_data.get('status_reason'),
+                    'error_details': agent_data.get('error_details'),
+                    'output': agent_output,
+                    'timestamp': current_time
+                }
+                output_queue.put(status_update)
+                
+                # Update stored data
+                tasks_data['agents'][agent_id] = agent_data
             
-            # Save updated tasks
             save_tasks(tasks_data)
-            
-            # Wait before next check
-            logging.info(f"Waiting {CHECK_INTERVAL} seconds before next check")
+            logger.info(f"Waiting {CHECK_INTERVAL} seconds before next check")
             sleep(CHECK_INTERVAL)
-        
+            
         except Exception as e:
-            logging.error(f"Error in main loop: {e}", exc_info=True)
+            logger.error(f"Error in main loop: {e}", exc_info=True)
             sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
-    logging.info("Starting orchestrator")
+    logger.info("Starting orchestrator")
     main_loop()
