@@ -16,9 +16,12 @@ import io
 import errno
 import logging
 import logging.handlers
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import emit
 from utils.installation_utils import AiderInstallationManager
 from utils.env_utils import EnvManager
+
+app = Flask(__name__)
 
 
 logging.basicConfig(
