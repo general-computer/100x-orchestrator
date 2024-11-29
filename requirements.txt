@@ -6,3 +6,5 @@ aider-chat>=0.18.0  # AI coding assistant
 gitpython>=3.1.40   # Git operations
 requests>=2.31.0    # HTTP requests
 pathlib>=1.0.1      # Path manipulation
+pytest>=7.4.3       # Testing framework
+pytest-cov>=4.1.0   # Test coverage
